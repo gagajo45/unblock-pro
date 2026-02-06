@@ -10,9 +10,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/aspect-build/unblock-pro/releases/latest"><img src="https://img.shields.io/github/v/release/aspect-build/unblock-pro?style=for-the-badge&color=blue&label=Скачать" alt="Latest Release"></a>
-  <a href="https://github.com/aspect-build/unblock-pro/releases/latest"><img src="https://img.shields.io/github/downloads/aspect-build/unblock-pro/total?style=for-the-badge&color=green&label=Скачиваний" alt="Downloads"></a>
-  <a href="https://github.com/aspect-build/unblock-pro/blob/main/LICENSE"><img src="https://img.shields.io/github/license/aspect-build/unblock-pro?style=for-the-badge&color=purple" alt="License"></a>
+  <a href="https://github.com/by-sonic/unblock-pro/releases/latest"><img src="https://img.shields.io/github/v/release/by-sonic/unblock-pro?style=for-the-badge&color=blue&label=Скачать" alt="Latest Release"></a>
+  <a href="https://github.com/by-sonic/unblock-pro/releases/latest"><img src="https://img.shields.io/github/downloads/by-sonic/unblock-pro/total?style=for-the-badge&color=green&label=Скачиваний" alt="Downloads"></a>
+  <a href="https://github.com/by-sonic/unblock-pro/blob/main/LICENSE"><img src="https://img.shields.io/github/license/by-sonic/unblock-pro?style=for-the-badge&color=purple" alt="License"></a>
 </p>
 
 ---
@@ -21,12 +21,12 @@
 
 | Платформа | Тип | Ссылка |
 |-----------|-----|--------|
-| **macOS** | DMG (установщик) | [UnblockPro-mac.dmg](https://github.com/aspect-build/unblock-pro/releases/latest) |
-| **macOS** | ZIP (портативная) | [UnblockPro-mac.zip](https://github.com/aspect-build/unblock-pro/releases/latest) |
-| **Windows** | Установщик | [UnblockPro-win-setup.exe](https://github.com/aspect-build/unblock-pro/releases/latest) |
-| **Windows** | Портативная | [UnblockPro-win-portable.exe](https://github.com/aspect-build/unblock-pro/releases/latest) |
+| **macOS** | DMG (установщик) | [UnblockPro-mac.dmg](https://github.com/by-sonic/unblock-pro/releases/latest) |
+| **macOS** | ZIP (портативная) | [UnblockPro-mac.zip](https://github.com/by-sonic/unblock-pro/releases/latest) |
+| **Windows** | Установщик | [UnblockPro-win-setup.exe](https://github.com/by-sonic/unblock-pro/releases/latest) |
+| **Windows** | Портативная | [UnblockPro-win-portable.exe](https://github.com/by-sonic/unblock-pro/releases/latest) |
 
-> Перейдите в [Releases](https://github.com/aspect-build/unblock-pro/releases/latest) и скачайте версию для вашей ОС
+> Перейдите в [Releases](https://github.com/by-sonic/unblock-pro/releases/latest) и скачайте версию для вашей ОС
 
 ---
 
@@ -64,14 +64,14 @@ UnblockPro использует технологию [zapret](https://github.com
 
 ### macOS
 
-1. Скачайте `.dmg` файл из [Releases](https://github.com/aspect-build/unblock-pro/releases/latest)
+1. Скачайте `.dmg` файл из [Releases](https://github.com/by-sonic/unblock-pro/releases/latest)
 2. Откройте `.dmg` и перетащите UnblockPro в «Программы»
 3. При первом запуске: **ПКМ → Открыть** (обход Gatekeeper)
 4. Нажмите «Подключить»
 
 ### Windows
 
-1. Скачайте установщик или портативную версию из [Releases](https://github.com/aspect-build/unblock-pro/releases/latest)
+1. Скачайте установщик или портативную версию из [Releases](https://github.com/by-sonic/unblock-pro/releases/latest)
 2. Запустите от имени администратора
 3. Нажмите «Подключить»
 
@@ -120,7 +120,7 @@ UnblockPro использует технологию [zapret](https://github.com
 
 ```bash
 # Клонировать репозиторий
-git clone https://github.com/aspect-build/unblock-pro.git
+git clone https://github.com/by-sonic/unblock-pro.git
 cd unblock-pro
 
 # Установить зависимости
