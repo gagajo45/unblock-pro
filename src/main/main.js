@@ -43,12 +43,8 @@ function applyAutoStart(enabled) {
 
 const ZAPRET_VERSION = 'v72.9';
 
-// Different URLs for different platforms
-const DOWNLOAD_URLS = {
-  win32: `https://github.com/bol-van/zapret/releases/download/${ZAPRET_VERSION}/zapret-win-x86_64-${ZAPRET_VERSION}.zip`,
-  // For macOS we'll use the full zapret archive and compile or use prebuilt from alternative source
-  darwin: `https://github.com/bol-van/zapret/releases/download/${ZAPRET_VERSION}/zapret-${ZAPRET_VERSION}.zip`
-};
+// Both platforms use the same full zapret archive (no separate Windows build)
+const DOWNLOAD_URL = `https://github.com/bol-van/zapret/releases/download/${ZAPRET_VERSION}/zapret-${ZAPRET_VERSION}.zip`;
 
 function getResourcePath() {
   if (isDev) {
@@ -255,8 +251,7 @@ async function downloadAndExtractBinaries() {
     fs.mkdirSync(platformDir, { recursive: true });
     fs.mkdirSync(tempDir, { recursive: true });
     
-    const downloadUrl = DOWNLOAD_URLS[process.platform];
-    if (!downloadUrl) {
+    if (process.platform !== 'win32' && process.platform !== 'darwin') {
       throw new Error(`Unsupported platform: ${process.platform}`);
     }
     
@@ -266,16 +261,13 @@ async function downloadAndExtractBinaries() {
     try { if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath); } catch (e) {}
     
     // Download
-    await downloadFile(downloadUrl, zipPath);
+    await downloadFile(DOWNLOAD_URL, zipPath);
     
     // Extract
-    // Extract
-    
     if (process.platform === 'win32') {
       execSync(`powershell -command "Expand-Archive -Path '${zipPath}' -DestinationPath '${tempDir}' -Force"`, { stdio: 'pipe' });
       
-      // Windows archive structure: zapret-win-x86_64-v72.9/
-      
+      // Archive structure: zapret-v72.9/binaries/windows-x86_64/winws.exe
       // Find winws.exe recursively
       let winwsPath = null;
       const findWinws = (dir) => {
