@@ -404,13 +404,17 @@ async function downloadAndExtractBinaries() {
       if (winwsPath) {
         fs.copyFileSync(winwsPath, path.join(platformDir, 'winws.exe'));
         
-        // Copy WinDivert files from same directory
+        // Copy ALL required files from the same directory as winws.exe:
+        // - WinDivert driver files (WinDivert.dll, WinDivert64.sys, WinDivert32.sys)
+        // - Cygwin runtime DLLs (cygwin1.dll, cygstdc++-6.dll, cyggcc_s-seh-1.dll, etc.)
         const winwsDir = path.dirname(winwsPath);
-        const divertFiles = ['WinDivert.dll', 'WinDivert64.sys', 'WinDivert32.sys'];
+        const dirFiles = fs.readdirSync(winwsDir);
         
-        for (const file of divertFiles) {
+        for (const file of dirFiles) {
+          if (file === 'winws.exe') continue; // already copied
           const src = path.join(winwsDir, file);
-          if (fs.existsSync(src)) {
+          const stat = fs.statSync(src);
+          if (stat.isFile()) {
             fs.copyFileSync(src, path.join(platformDir, file));
           }
         }
