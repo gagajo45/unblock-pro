@@ -53,6 +53,46 @@ body {
   border: 1px solid var(--border-color);
 }
 
+/* Update banner */
+.update-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.15), rgba(139, 92, 246, 0.15));
+  border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.update-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--accent-blue);
+}
+
+.update-btn {
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent-blue);
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.update-btn:hover {
+  background: #2563eb;
+  transform: scale(1.05);
+}
+
+.update-banner.downloading .update-btn {
+  background: var(--bg-tertiary);
+  cursor: default;
+}
+
 /* Title bar */
 .title-bar {
   display: flex;

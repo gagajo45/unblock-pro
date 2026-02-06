@@ -19,6 +19,11 @@ let isConnected = false;
 let isConnecting = false;
 let isDownloading = false;
 
+// Update elements
+const updateBanner = document.getElementById('updateBanner');
+const updateText = document.getElementById('updateText');
+const updateBtn = document.getElementById('updateBtn');
+
 // Initialize
 async function init() {
   setupEventListeners();
@@ -29,6 +34,8 @@ async function init() {
   // Listen for updates
   window.api.onStatus(handleStatusUpdate);
   window.api.onDownloadProgress(handleDownloadProgress);
+  window.api.onUpdateStatus(handleUpdateStatus);
+  window.api.onUpdateDownloadProgress(handleUpdateDownloadProgress);
 }
 
 function setupEventListeners() {
@@ -56,6 +63,9 @@ async function loadSystemInfo() {
     };
     
     platformBadge.textContent = platformNames[info.platform] || info.platform;
+    
+    const versionEl = document.getElementById('versionText');
+    if (versionEl && info.version) versionEl.textContent = `v${info.version}`;
     
     updateBinaryStatus(info.binaryExists);
   } catch (error) {
@@ -196,6 +206,40 @@ async function handleConnectClick() {
       await loadStatus();
     }
   }
+}
+
+// Auto-update handlers
+function handleUpdateStatus(data) {
+  const { status, version } = data;
+  
+  switch (status) {
+    case 'available':
+      updateBanner.style.display = 'flex';
+      updateBanner.classList.remove('downloading');
+      updateText.textContent = `Обновление v${version} загружается...`;
+      updateBtn.style.display = 'none';
+      break;
+    case 'downloaded':
+      updateBanner.style.display = 'flex';
+      updateBanner.classList.remove('downloading');
+      updateText.textContent = `Обновление v${version} готово`;
+      updateBtn.textContent = 'Перезапустить';
+      updateBtn.style.display = 'block';
+      updateBtn.onclick = () => window.api.installUpdate();
+      break;
+    case 'error':
+    case 'not-available':
+    case 'checking':
+      // Don't show banner
+      break;
+  }
+}
+
+function handleUpdateDownloadProgress(progress) {
+  updateBanner.style.display = 'flex';
+  updateBanner.classList.add('downloading');
+  updateText.textContent = `Загрузка обновления: ${progress.percent}%`;
+  updateBtn.style.display = 'none';
 }
 
 // Start

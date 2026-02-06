@@ -1,9 +1,10 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog } = require('electron');
 const path = require('path');
 const { spawn, exec, execSync } = require('child_process');
 const fs = require('fs');
 const https = require('https');
 const sudo = require('sudo-prompt');
+const { autoUpdater } = require('electron-updater');
 
 let mainWindow;
 let tray;
@@ -819,6 +820,56 @@ function createTray() {
   });
 }
 
+// ============= AUTO-UPDATER =============
+
+function setupAutoUpdater() {
+  if (isDev) return; // Don't check for updates in dev mode
+  
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  
+  autoUpdater.on('checking-for-update', () => {
+    sendUpdateStatus('checking');
+  });
+  
+  autoUpdater.on('update-available', (info) => {
+    sendUpdateStatus('available', info.version);
+  });
+  
+  autoUpdater.on('update-not-available', () => {
+    sendUpdateStatus('not-available');
+  });
+  
+  autoUpdater.on('download-progress', (progress) => {
+    if (mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.send('update-download-progress', {
+        percent: Math.round(progress.percent),
+        transferred: progress.transferred,
+        total: progress.total
+      });
+    }
+  });
+  
+  autoUpdater.on('update-downloaded', (info) => {
+    sendUpdateStatus('downloaded', info.version);
+  });
+  
+  autoUpdater.on('error', () => {
+    sendUpdateStatus('error');
+  });
+  
+  // Check for updates after a short delay
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch(() => {});
+  }, 5000);
+}
+
+function sendUpdateStatus(status, version = null) {
+  if (mainWindow && mainWindow.webContents) {
+    mainWindow.webContents.send('update-status', { status, version });
+  }
+}
+
 // ============= IPC HANDLERS =============
 
 ipcMain.handle('start-proxy', async () => {
@@ -857,6 +908,14 @@ ipcMain.handle('get-settings', () => {
   return loadSettings();
 });
 
+ipcMain.handle('install-update', () => {
+  autoUpdater.quitAndInstall(false, true);
+});
+
+ipcMain.handle('check-for-updates', () => {
+  if (!isDev) autoUpdater.checkForUpdates().catch(() => {});
+});
+
 ipcMain.handle('set-auto-start', (event, enabled) => {
   const settings = loadSettings();
   settings.autoStart = enabled;
@@ -884,6 +943,9 @@ app.whenReady().then(async () => {
   // Send initial status
   const binaryExists = fs.existsSync(getBinaryPath() || '');
   sendStatus({ binaryExists });
+  
+  // Setup auto-updater
+  setupAutoUpdater();
   
   // Apply saved auto-start setting
   const settings = loadSettings();

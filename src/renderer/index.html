@@ -29,6 +29,17 @@
       </div>
     </div>
 
+    <!-- Update banner -->
+    <div class="update-banner" id="updateBanner" style="display: none;">
+      <div class="update-info">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2v8m0 0l3-3m-3 3L9 7M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span id="updateText">Обновление доступно</span>
+      </div>
+      <button class="update-btn" id="updateBtn">Установить</button>
+    </div>
+
     <!-- Main content -->
     <div class="main-content">
       <!-- Status section -->
@@ -106,7 +117,7 @@
     <div class="footer">
       <div class="system-info" id="systemInfo">
         <span class="platform-badge" id="platformBadge">--</span>
-        <span class="version">v1.0.0</span>
+        <span class="version" id="versionText">v1.1.0</span>
       </div>
       <span class="credit">by sonic</span>
       <div class="binary-status" id="binaryStatus">

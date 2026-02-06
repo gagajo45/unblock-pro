@@ -21,11 +21,21 @@ contextBridge.exposeInMainWorld('api', {
   setAutoStart: (enabled) => ipcRenderer.invoke('set-auto-start', enabled),
   setAutoConnect: (enabled) => ipcRenderer.invoke('set-auto-connect', enabled),
   
+  // Updates
+  installUpdate: () => ipcRenderer.invoke('install-update'),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  
   // Event listeners
   onStatus: (callback) => {
     ipcRenderer.on('status', (event, data) => callback(data));
   },
   onDownloadProgress: (callback) => {
     ipcRenderer.on('download-progress', (event, data) => callback(data));
+  },
+  onUpdateStatus: (callback) => {
+    ipcRenderer.on('update-status', (event, data) => callback(data));
+  },
+  onUpdateDownloadProgress: (callback) => {
+    ipcRenderer.on('update-download-progress', (event, data) => callback(data));
   }
 });
