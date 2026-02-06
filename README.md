@@ -1,8 +1,5 @@
 # UnblockPro — Обход блокировок Discord и YouTube
 
-<p align="center">
-  <img src="assets/banner.svg" alt="UnblockPro — DPI Bypass for Discord and YouTube" width="800">
-</p>
 
 <p align="center">
   <strong>Автоматический DPI bypass для macOS и Windows</strong><br>
