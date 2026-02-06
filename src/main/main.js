@@ -501,6 +501,15 @@ async function downloadAndExtractBinaries() {
   const tempDir = path.join(app.getPath('temp'), 'unblock-pro-temp');
   
   try {
+    // On Windows, try to add Defender exclusion so WinDivert driver isn't deleted
+    if (process.platform === 'win32') {
+      try {
+        execSync(`powershell -command "Add-MpPreference -ExclusionPath '${platformDir}'" `, { stdio: 'pipe' });
+      } catch (e) {
+        // May fail without admin — non-critical
+      }
+    }
+    
     // Clean up any leftover temp files from previous attempts (fixes EPERM on Windows)
     try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (e) {}
     
@@ -562,6 +571,21 @@ async function downloadAndExtractBinaries() {
           if (stat.isFile()) {
             fs.copyFileSync(src, path.join(platformDir, file));
           }
+        }
+        
+        // Unblock all files — Windows marks downloaded files with Zone.Identifier ADS
+        // which prevents kernel drivers (WinDivert64.sys) from loading
+        try {
+          execSync(`powershell -command "Get-ChildItem -Path '${platformDir}' | Unblock-File"`, { stdio: 'pipe' });
+        } catch (e) {
+          // Non-critical: unblock may fail if not needed
+        }
+        
+        // Verify WinDivert files were copied
+        const driverExists = fs.existsSync(path.join(platformDir, 'WinDivert64.sys'));
+        const dllExists = fs.existsSync(path.join(platformDir, 'WinDivert.dll'));
+        if (!driverExists || !dllExists) {
+          sendLog({ type: 'warning', message: `WinDivert файлы: driver=${driverExists}, dll=${dllExists}` });
         }
       } else {
         throw new Error('winws.exe not found in archive');
@@ -913,8 +937,36 @@ async function startProxy() {
       } else if (process.platform === 'win32') {
         // Windows - winws.exe intercepts traffic at driver level via WinDivert
         // No proxy configuration needed — it modifies packets in-flight
-        // MUST cd to binary directory so WinDivert can find its driver files (WinDivert64.sys)
         const binDirectory = path.dirname(finalBinaryPath);
+        
+        // Pre-flight check: verify WinDivert driver files exist
+        const driverFile = path.join(binDirectory, 'WinDivert64.sys');
+        const dllFile = path.join(binDirectory, 'WinDivert.dll');
+        if (!fs.existsSync(driverFile) || !fs.existsSync(dllFile)) {
+          sendLog({ type: 'warning', message: 'WinDivert файлы отсутствуют, перекачиваю бинарники...' });
+          // Force re-download — files may have been deleted by antivirus
+          try { fs.unlinkSync(finalBinaryPath); } catch(e) {}
+          const dlResult = await downloadAndExtractBinaries();
+          if (!dlResult.success) {
+            lastError = 'Не удалось скачать WinDivert. Добавьте папку приложения в исключения антивируса.';
+            lastErrorCode = 'WINDIVERT_MISSING';
+            sendLog({ type: 'error', message: lastError });
+            strategyProgress = null;
+            sendStatus({ searching: false });
+            return { success: false, error: lastError };
+          }
+          // Check again after re-download
+          if (!fs.existsSync(driverFile)) {
+            lastError = 'WinDivert64.sys удалён антивирусом. Добавьте папку в исключения Windows Defender:\n' + binDirectory;
+            lastErrorCode = 'WINDIVERT_BLOCKED';
+            sendLog({ type: 'error', message: lastError });
+            strategyProgress = null;
+            sendStatus({ searching: false });
+            return { success: false, error: lastError };
+          }
+        }
+        
+        // cd to binary directory so WinDivert can find its driver files
         const command = `cd /d "${binDirectory}" && "${finalBinaryPath}" ${strategy.args.join(' ')}`;
         
         return new Promise((resolve) => {
@@ -925,9 +977,16 @@ async function startProxy() {
                 error.message.includes('cancelled') || 
                 error.message.includes('User did not grant')
               );
+              const isWinDivertError = error.message && (
+                error.message.includes('windivert') ||
+                error.message.includes('cannot find the file')
+              );
               if (isPermDenied) {
                 lastError = 'Требуются права администратора для обхода DPI';
                 lastErrorCode = 'PERMISSION_DENIED';
+              } else if (isWinDivertError) {
+                lastError = 'WinDivert не может загрузить драйвер. Добавьте папку в исключения Windows Defender:\n' + binDirectory;
+                lastErrorCode = 'WINDIVERT_BLOCKED';
               } else {
                 lastError = `Ошибка запуска: ${error.message}`;
                 lastErrorCode = 'PROCESS_CRASHED';
