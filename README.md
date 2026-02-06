@@ -62,10 +62,17 @@ UnblockPro использует технологию [zapret](https://github.com
 
 ### macOS
 
-1. Скачайте `.dmg` файл из [Releases](https://github.com/by-sonic/unblock-pro/releases/latest)
-2. Откройте `.dmg` и перетащите UnblockPro в «Программы»
-3. При первом запуске: **ПКМ → Открыть** (обход Gatekeeper)
-4. Нажмите «Подключить»
+1. Скачайте `.dmg` или `.zip` из [Releases](https://github.com/by-sonic/unblock-pro/releases/latest)
+2. Если `.dmg` — откройте и перетащите UnblockPro в «Программы»
+3. **Снимите блокировку Gatekeeper** (обязательно при первом запуске):
+
+```bash
+xattr -cr /Applications/UnblockPro.app
+```
+
+4. Запустите приложение и нажмите «Подключить»
+
+> **Почему нужна команда?** macOS блокирует приложения без платной подписи Apple Developer ($99/год). Команда `xattr -cr` снимает карантинный флаг — это безопасно, код проекта полностью открыт.
 
 ### Windows
 
@@ -108,8 +115,15 @@ UnblockPro использует технологию [zapret](https://github.com
 </details>
 
 <details>
-<summary><strong>macOS просит разрешение</strong></summary>
-При первом запуске macOS может показать предупреждение Gatekeeper. Нажмите ПКМ → Открыть, затем подтвердите.
+<summary><strong>macOS: «файл не был открыт» / Gatekeeper</strong></summary>
+
+Откройте Терминал и выполните:
+```bash
+xattr -cr /Applications/UnblockPro.app
+```
+После этого приложение запустится нормально. Это нужно сделать только один раз.
+
+Если скачали `.zip` и распаковали в другую папку — укажите путь к `.app` вместо `/Applications/UnblockPro.app`.
 </details>
 
 ---
