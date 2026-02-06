@@ -107,7 +107,8 @@ jobs:
             
             | Платформа | Файл | Описание |
             |-----------|------|----------|
-            | **macOS** (Intel + Apple Silicon) | `UnblockPro-*-mac.zip` | Распаковать и запустить |
+            | **macOS** Apple Silicon (M1/M2/M3/M4) | `UnblockPro-*-mac-arm64.zip` | Для Mac с M-процессором |
+            | **macOS** Intel | `UnblockPro-*-mac-x64.zip` | Для Mac с Intel |
             | **Windows** | `UnblockPro-*-win-setup.exe` | Установщик |
             | **Windows** | `UnblockPro-*-win-portable.exe` | Портативная версия |
             

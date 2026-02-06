@@ -65,13 +65,14 @@
         {
           "target": "zip",
           "arch": [
-            "x64"
+            "x64",
+            "arm64"
           ]
         }
       ],
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "artifactName": "UnblockPro-${version}-mac.${ext}"
+      "artifactName": "UnblockPro-${version}-mac-${arch}.${ext}"
     },
     "win": {
       "icon": "assets/icon.ico",

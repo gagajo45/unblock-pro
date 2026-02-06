@@ -12,6 +12,12 @@ let proxyProcess = null;
 let isConnected = false;
 let isDownloading = false;
 let currentStrategy = null;
+let lastError = null;
+let lastErrorCode = null;
+let disconnectReason = null;
+let connectedSince = null; // timestamp when connected
+let strategyProgress = null; // { current: N, total: M, name: '...' }
+let logEntries = []; // strategy testing log for UI
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -171,6 +177,51 @@ const STRATEGIES = {
       name: 'combined-v3',
       args: ['--port', '1080', '--socks', '--tlsrec=sni', '--hostpad=256', '--split-pos=2', '--disorder', '--hostcase']
     },
+    // === EXTENDED SPLIT POSITIONS ===
+    {
+      name: 'split3+disorder',
+      args: ['--port', '1080', '--socks', '--split-pos=3', '--disorder', '--hostcase']
+    },
+    {
+      name: 'split-sniext+disorder',
+      args: ['--port', '1080', '--socks', '--split-pos=1,sniext', '--disorder', '--hostcase']
+    },
+    // === HOST MANIPULATION VARIANTS ===
+    {
+      name: 'hosttab+split+disorder',
+      args: ['--port', '1080', '--socks', '--hosttab', '--split-pos=1', '--disorder', '--hostcase']
+    },
+    {
+      name: 'hostspell+split',
+      args: ['--port', '1080', '--socks', '--hostspell', '--split-pos=1', '--disorder']
+    },
+    // === LARGE HOSTPAD VARIANTS ===
+    {
+      name: 'hostpad512+split+disorder',
+      args: ['--port', '1080', '--socks', '--hostpad=512', '--split-pos=1', '--disorder', '--hostcase']
+    },
+    {
+      name: 'hostpad1024+split',
+      args: ['--port', '1080', '--socks', '--hostpad=1024', '--split-pos=1,midsld', '--hostcase']
+    },
+    // === TLS RECORD MANIPULATION ===
+    {
+      name: 'tlsrec+disorder',
+      args: ['--port', '1080', '--socks', '--tlsrec=sni', '--disorder', '--hostcase']
+    },
+    {
+      name: 'tlsrec+oob+split',
+      args: ['--port', '1080', '--socks', '--tlsrec=sni', '--oob', '--split-pos=1', '--hostcase']
+    },
+    // === AGGRESSIVE COMBINED ===
+    {
+      name: 'combined-v4',
+      args: ['--port', '1080', '--socks', '--oob', '--hostpad=256', '--split-pos=1,midsld', '--disorder', '--hostcase', '--methodeol']
+    },
+    {
+      name: 'combined-v5',
+      args: ['--port', '1080', '--socks', '--tlsrec=sni', '--methodeol', '--hostdot', '--split-pos=2', '--disorder', '--hostcase']
+    },
     // === MINIMAL (last resort) ===
     {
       name: 'split-only',
@@ -238,11 +289,82 @@ const STRATEGIES = {
       args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
         '--dpi-desync=multidisorder', '--dpi-desync-split-pos=1,midsld']
     },
+    // Strategy: different seqovl values (ISP-specific)
+    {
+      name: 'multisplit-1',
+      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
+        '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=1',
+        '--dpi-desync-split-pos=1']
+    },
+    {
+      name: 'multisplit-2',
+      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
+        '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=2',
+        '--dpi-desync-split-pos=2']
+    },
+    {
+      name: 'multisplit-336',
+      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
+        '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=336',
+        '--dpi-desync-split-pos=1']
+    },
+    // Strategy: fake with TTL manipulation
+    {
+      name: 'fake-ttl3',
+      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
+        '--dpi-desync=fake', '--dpi-desync-ttl=3',
+        '--dpi-desync-fooling=md5sig']
+    },
+    {
+      name: 'fake-autottl',
+      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
+        '--dpi-desync=fake', '--dpi-desync-autottl=2',
+        '--dpi-desync-fooling=md5sig']
+    },
+    // Strategy: disorder2 variants
+    {
+      name: 'fake+disorder2',
+      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
+        '--dpi-desync=fake,disorder2', '--dpi-desync-split-pos=1',
+        '--dpi-desync-fooling=badseq']
+    },
+    {
+      name: 'disorder2+split2',
+      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
+        '--dpi-desync=disorder2,split2', '--dpi-desync-split-pos=1,midsld']
+    },
+    // Strategy: fakedsplit variants
+    {
+      name: 'fakedsplit-md5sig',
+      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
+        '--dpi-desync=fake,fakedsplit', '--dpi-desync-repeats=6',
+        '--dpi-desync-fooling=md5sig', '--dpi-desync-fakedsplit-pattern=0x00']
+    },
+    // Strategy: combined TCP+QUIC approaches
+    {
+      name: 'multisplit-midsld',
+      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
+        '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=2',
+        '--dpi-desync-split-pos=midsld']
+    },
+    {
+      name: 'fake+multisplit',
+      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
+        '--dpi-desync=fake,multisplit', '--dpi-desync-split-seqovl=1',
+        '--dpi-desync-split-pos=1', '--dpi-desync-fooling=badseq']
+    },
     // Strategy: syndata (last resort)
     {
       name: 'syndata',
       args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443',
         '--dpi-desync=syndata', '--dpi-desync-fake-tls=0x00000000']
+    },
+    // Strategy: syndata with TTL
+    {
+      name: 'syndata+ttl',
+      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443',
+        '--dpi-desync=syndata', '--dpi-desync-fake-tls=0x00000000',
+        '--dpi-desync-ttl=5']
     }
   ]
 };
@@ -254,9 +376,32 @@ function sendStatus(extra = {}) {
       downloading: isDownloading,
       strategy: currentStrategy,
       binaryExists: fs.existsSync(getBinaryPath() || ''),
+      error: lastError,
+      errorCode: lastErrorCode,
+      disconnectReason: disconnectReason,
+      connectedSince: connectedSince,
+      strategyProgress: strategyProgress,
       ...extra
     });
   }
+}
+
+function sendLog(entry) {
+  // entry: { type: 'info'|'success'|'error'|'warning', message: string, timestamp: number }
+  console.log(`[${entry.type}] ${entry.message}`);
+  const logEntry = { ...entry, timestamp: Date.now() };
+  logEntries.push(logEntry);
+  // Keep only last 100 entries
+  if (logEntries.length > 100) logEntries.shift();
+  if (mainWindow && mainWindow.webContents) {
+    mainWindow.webContents.send('log-entry', logEntry);
+  }
+}
+
+function clearError() {
+  lastError = null;
+  lastErrorCode = null;
+  disconnectReason = null;
 }
 
 function updateTrayMenu() {
@@ -496,12 +641,28 @@ async function downloadAndExtractBinaries() {
     
   } catch (error) {
     isDownloading = false;
+    
+    // Categorize download errors
+    let errorMsg = error.message;
+    if (error.message.includes('Timeout')) {
+      errorMsg = 'Таймаут при скачивании — проверьте интернет-соединение';
+    } else if (error.message.includes('ENOTFOUND') || error.message.includes('getaddrinfo')) {
+      errorMsg = 'Нет доступа к серверу — проверьте интернет-соединение';
+    } else if (error.message.includes('EPERM') || error.message.includes('EACCES')) {
+      errorMsg = 'Нет прав для записи файлов — запустите от администратора';
+    } else if (error.message.includes('Cannot write')) {
+      errorMsg = 'Файл заблокирован — закройте антивирус и попробуйте снова';
+    } else if (error.message.includes('not found')) {
+      errorMsg = 'Бинарник не найден в архиве';
+    }
+    
+    sendLog({ type: 'error', message: `Ошибка скачивания: ${errorMsg}` });
     sendStatus();
     
     // Cleanup on error
     try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (e) {}
     
-    return { success: false, error: error.message };
+    return { success: false, error: errorMsg };
   }
 }
 
@@ -596,30 +757,69 @@ async function testProxyConnection(port = 1080, timeoutSec = 10) {
 
 async function startProxy() {
   if (isConnected || proxyProcess) {
+    lastError = 'Подключение уже активно';
+    lastErrorCode = 'ALREADY_RUNNING';
+    sendStatus();
     return { success: false, error: 'Already running' };
   }
+
+  // Clear previous errors
+  clearError();
+  strategyProgress = null;
+  sendLog({ type: 'info', message: 'Начало подключения...' });
 
   const binaryPath = getBinaryPath();
   
   // Auto-download if binary not found
   if (!binaryPath || !fs.existsSync(binaryPath)) {
+    sendLog({ type: 'info', message: 'Бинарник не найден, начинаю скачивание...' });
     const downloadResult = await downloadAndExtractBinaries();
     if (!downloadResult.success) {
-      return { success: false, error: 'Failed to download binaries' };
+      lastError = `Не удалось скачать бинарники: ${downloadResult.error}`;
+      lastErrorCode = 'DOWNLOAD_FAILED';
+      sendLog({ type: 'error', message: lastError });
+      sendStatus();
+      return { success: false, error: lastError };
     }
+    sendLog({ type: 'success', message: 'Бинарники скачаны успешно' });
   }
   
   // Verify binary exists after download
   const finalBinaryPath = getBinaryPath();
   if (!finalBinaryPath || !fs.existsSync(finalBinaryPath)) {
-    return { success: false, error: 'Binary not found' };
+    lastError = 'Бинарник не найден после скачивания';
+    lastErrorCode = 'NO_BINARY';
+    sendLog({ type: 'error', message: lastError });
+    sendStatus();
+    return { success: false, error: lastError };
+  }
+
+  // Check network availability on macOS
+  if (process.platform === 'darwin') {
+    const services = getActiveNetworkServices();
+    if (services.length === 0) {
+      lastError = 'Не обнаружено активных сетевых подключений';
+      lastErrorCode = 'NETWORK_UNAVAILABLE';
+      sendLog({ type: 'error', message: lastError });
+      sendStatus();
+      return { success: false, error: lastError };
+    }
   }
 
   sendStatus({ searching: true });
 
   const strategies = STRATEGIES[process.platform] || [];
+  const totalStrategies = strategies.length;
   
-  for (const strategy of strategies) {
+  sendLog({ type: 'info', message: `Начинаю перебор ${totalStrategies} стратегий...` });
+  
+  for (let i = 0; i < strategies.length; i++) {
+    const strategy = strategies[i];
+    
+    // Update strategy progress
+    strategyProgress = { current: i + 1, total: totalStrategies, name: strategy.name };
+    sendStatus({ searching: true });
+    sendLog({ type: 'info', message: `[${i + 1}/${totalStrategies}] Тестирование: ${strategy.name}` });
     
     // Stop any previous test process
     if (proxyProcess) {
@@ -639,13 +839,21 @@ async function startProxy() {
         proxyProcess.stderr.on('data', () => {});
         proxyProcess.on('error', () => {});
         
-        proxyProcess.on('close', () => {
+        proxyProcess.on('close', (code) => {
           proxyProcess = null;
           if (isConnected) {
             isConnected = false;
+            const prevStrategy = currentStrategy;
             currentStrategy = null;
+            connectedSince = null;
+            disconnectReason = code === 0 ? 'PROCESS_EXITED' : 'PROCESS_CRASHED';
+            lastError = code === 0 
+              ? 'Процесс обхода завершился' 
+              : `Процесс обхода завершился с ошибкой (код: ${code})`;
+            lastErrorCode = 'PROCESS_CRASHED';
             disableSystemProxy();
             updateTrayMenu();
+            sendLog({ type: 'error', message: `Стратегия ${prevStrategy} прекратила работу (код: ${code})` });
             sendStatus();
           }
         });
@@ -654,6 +862,7 @@ async function startProxy() {
         await new Promise(resolve => setTimeout(resolve, 2000));
         
         if (!proxyProcess || proxyProcess.killed || proxyProcess.exitCode !== null) {
+          sendLog({ type: 'warning', message: `${strategy.name}: процесс не запустился` });
           continue; // Process died, try next strategy
         }
         
@@ -669,6 +878,7 @@ async function startProxy() {
         });
         
         if (!portOpen) {
+          sendLog({ type: 'warning', message: `${strategy.name}: порт 1080 не доступен` });
           try { proxyProcess.kill(); } catch (e) {}
           proxyProcess = null;
           continue; // tpws not listening, skip this strategy
@@ -684,11 +894,16 @@ async function startProxy() {
           // Strategy verified working
           isConnected = true;
           currentStrategy = strategy.name;
+          connectedSince = Date.now();
+          strategyProgress = null;
+          clearError();
           updateTrayMenu();
+          sendLog({ type: 'success', message: `Стратегия ${strategy.name} работает!` });
           sendStatus({ searching: false });
           return { success: true, strategy: strategy.name };
         } else {
           // Strategy didn't work — clean up and try next
+          sendLog({ type: 'warning', message: `${strategy.name}: не прошла проверку соединения` });
           disableSystemProxy();
           try { proxyProcess.kill(); } catch (e) {}
           proxyProcess = null;
@@ -703,13 +918,32 @@ async function startProxy() {
         return new Promise((resolve) => {
           sudo.exec(command, { name: 'UnblockPro' }, (error) => {
             if (error) {
-              resolve({ success: false, error: error.message });
+              const isPermDenied = error.message && (
+                error.message.includes('canceled') || 
+                error.message.includes('cancelled') || 
+                error.message.includes('User did not grant')
+              );
+              if (isPermDenied) {
+                lastError = 'Требуются права администратора для обхода DPI';
+                lastErrorCode = 'PERMISSION_DENIED';
+              } else {
+                lastError = `Ошибка запуска: ${error.message}`;
+                lastErrorCode = 'PROCESS_CRASHED';
+              }
+              sendLog({ type: 'error', message: lastError });
+              strategyProgress = null;
+              sendStatus({ searching: false });
+              resolve({ success: false, error: lastError });
               return;
             }
             
             isConnected = true;
             currentStrategy = strategy.name;
+            connectedSince = Date.now();
+            strategyProgress = null;
+            clearError();
             updateTrayMenu();
+            sendLog({ type: 'success', message: `Стратегия ${strategy.name} работает!` });
             sendStatus({ searching: false });
             resolve({ success: true, strategy: strategy.name });
           });
@@ -722,24 +956,38 @@ async function startProxy() {
               windowsHide: true
             });
             
-            proxyProcess.on('close', () => {
+            proxyProcess.on('close', (code) => {
               proxyProcess = null;
-              isConnected = false;
-              currentStrategy = null;
-              updateTrayMenu();
-              sendStatus();
+              if (isConnected) {
+                isConnected = false;
+                const prevStrategy = currentStrategy;
+                currentStrategy = null;
+                connectedSince = null;
+                disconnectReason = 'PROCESS_CRASHED';
+                lastError = `Процесс обхода завершился неожиданно (код: ${code})`;
+                lastErrorCode = 'PROCESS_CRASHED';
+                updateTrayMenu();
+                sendLog({ type: 'error', message: `Стратегия ${prevStrategy} прекратила работу` });
+                sendStatus();
+              }
             });
           } catch (e) {}
         });
       }
       
     } catch (error) {
+      sendLog({ type: 'warning', message: `${strategy.name}: ошибка — ${error.message}` });
       // Strategy failed, try next
     }
   }
   
+  // All strategies failed
+  lastError = 'Ни одна стратегия не сработала. Попробуйте позже или обратитесь в поддержку';
+  lastErrorCode = 'ALL_STRATEGIES_FAILED';
+  strategyProgress = null;
+  sendLog({ type: 'error', message: `Все ${totalStrategies} стратегий не сработали` });
   sendStatus({ searching: false });
-  return { success: false, error: 'No working strategy found' };
+  return { success: false, error: lastError };
 }
 
 function stopProxy() {
@@ -760,7 +1008,11 @@ function stopProxy() {
 
   isConnected = false;
   currentStrategy = null;
+  connectedSince = null;
+  strategyProgress = null;
+  clearError();
   updateTrayMenu();
+  sendLog({ type: 'info', message: 'Отключено пользователем' });
   sendStatus();
   
   return { success: true };
@@ -893,8 +1145,23 @@ ipcMain.handle('get-status', () => {
     connected: isConnected,
     downloading: isDownloading,
     strategy: currentStrategy,
-    binaryExists: fs.existsSync(getBinaryPath() || '')
+    binaryExists: fs.existsSync(getBinaryPath() || ''),
+    error: lastError,
+    errorCode: lastErrorCode,
+    disconnectReason: disconnectReason,
+    connectedSince: connectedSince,
+    strategyProgress: strategyProgress
   };
+});
+
+ipcMain.handle('get-logs', () => {
+  return logEntries;
+});
+
+ipcMain.handle('clear-error', () => {
+  clearError();
+  sendStatus();
+  return { success: true };
 });
 
 ipcMain.handle('minimize-window', () => mainWindow.minimize());
@@ -946,6 +1213,7 @@ app.whenReady().then(async () => {
   
   // Send initial status
   const binaryExists = fs.existsSync(getBinaryPath() || '');
+  sendLog({ type: 'info', message: 'Приложение запущено' });
   sendStatus({ binaryExists });
   
   // Setup auto-updater
@@ -957,7 +1225,6 @@ app.whenReady().then(async () => {
   
   // Auto-connect if enabled
   if (settings.autoConnect) {
-    // Small delay to let the window fully load
     setTimeout(() => {
       startProxy();
     }, 1500);

@@ -25,6 +25,10 @@ contextBridge.exposeInMainWorld('api', {
   installUpdate: () => ipcRenderer.invoke('install-update'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   
+  // Logs & errors
+  getLogs: () => ipcRenderer.invoke('get-logs'),
+  clearError: () => ipcRenderer.invoke('clear-error'),
+  
   // Event listeners
   onStatus: (callback) => {
     ipcRenderer.on('status', (event, data) => callback(data));
@@ -37,5 +41,8 @@ contextBridge.exposeInMainWorld('api', {
   },
   onUpdateDownloadProgress: (callback) => {
     ipcRenderer.on('update-download-progress', (event, data) => callback(data));
+  },
+  onLogEntry: (callback) => {
+    ipcRenderer.on('log-entry', (event, data) => callback(data));
   }
 });

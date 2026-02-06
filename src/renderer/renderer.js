@@ -14,15 +14,52 @@ const downloadPercent = document.getElementById('downloadPercent');
 const autostartToggle = document.getElementById('autostartToggle');
 const autoconnectToggle = document.getElementById('autoconnectToggle');
 
+// New UI elements
+const connectionTimer = document.getElementById('connectionTimer');
+const timerText = document.getElementById('timerText');
+const serviceBadges = document.getElementById('serviceBadges');
+const strategyProgress = document.getElementById('strategyProgress');
+const strategyProgressText = document.getElementById('strategyProgressText');
+const strategyProgressCount = document.getElementById('strategyProgressCount');
+const strategyProgressFill = document.getElementById('strategyProgressFill');
+const strategyProgressName = document.getElementById('strategyProgressName');
+const errorCard = document.getElementById('errorCard');
+const errorTitle = document.getElementById('errorTitle');
+const errorMessage = document.getElementById('errorMessage');
+const errorDismiss = document.getElementById('errorDismiss');
+const retryBtn = document.getElementById('retryBtn');
+const logsCard = document.getElementById('logsCard');
+const logsToggle = document.getElementById('logsToggle');
+const logsChevron = document.getElementById('logsChevron');
+const logsBody = document.getElementById('logsBody');
+const logsList = document.getElementById('logsList');
+const logsCount = document.getElementById('logsCount');
+
 // State
 let isConnected = false;
 let isConnecting = false;
 let isDownloading = false;
+let timerInterval = null;
+let connectedSinceTime = null;
+let logsOpen = false;
+let logCount = 0;
 
 // Update elements
 const updateBanner = document.getElementById('updateBanner');
 const updateText = document.getElementById('updateText');
 const updateBtn = document.getElementById('updateBtn');
+
+// Error code to user-friendly title mapping
+const ERROR_TITLES = {
+  'NO_BINARY': 'Бинарник не найден',
+  'DOWNLOAD_FAILED': 'Ошибка скачивания',
+  'ALL_STRATEGIES_FAILED': 'Стратегии не сработали',
+  'PROCESS_CRASHED': 'Процесс завершился',
+  'PERMISSION_DENIED': 'Нет прав доступа',
+  'PORT_IN_USE': 'Порт занят',
+  'NETWORK_UNAVAILABLE': 'Нет сети',
+  'ALREADY_RUNNING': 'Уже подключено'
+};
 
 // Initialize
 async function init() {
@@ -30,12 +67,14 @@ async function init() {
   await loadSystemInfo();
   await loadStatus();
   await loadSettings();
+  await loadLogs();
   
   // Listen for updates
   window.api.onStatus(handleStatusUpdate);
   window.api.onDownloadProgress(handleDownloadProgress);
   window.api.onUpdateStatus(handleUpdateStatus);
   window.api.onUpdateDownloadProgress(handleUpdateDownloadProgress);
+  window.api.onLogEntry(handleLogEntry);
 }
 
 function setupEventListeners() {
@@ -49,6 +88,31 @@ function setupEventListeners() {
   
   autoconnectToggle.addEventListener('change', async () => {
     await window.api.setAutoConnect(autoconnectToggle.checked);
+  });
+  
+  // Error card dismiss
+  errorDismiss.addEventListener('click', () => {
+    hideError();
+    window.api.clearError();
+  });
+  
+  // Retry button
+  retryBtn.addEventListener('click', async () => {
+    hideError();
+    window.api.clearError();
+    handleConnectClick();
+  });
+  
+  // Logs toggle
+  logsToggle.addEventListener('click', () => {
+    logsOpen = !logsOpen;
+    logsBody.style.display = logsOpen ? 'block' : 'none';
+    logsChevron.classList.toggle('open', logsOpen);
+    
+    // Scroll to bottom when opening
+    if (logsOpen) {
+      logsList.scrollTop = logsList.scrollHeight;
+    }
   });
 }
 
@@ -109,6 +173,17 @@ async function loadSettings() {
   }
 }
 
+async function loadLogs() {
+  try {
+    const logs = await window.api.getLogs();
+    if (logs && logs.length > 0) {
+      logs.forEach(entry => addLogEntry(entry));
+    }
+  } catch (error) {
+    // silently handle
+  }
+}
+
 function handleStatusUpdate(status) {
   isConnected = status.connected;
   isDownloading = status.downloading;
@@ -119,8 +194,9 @@ function handleStatusUpdate(status) {
   }
   
   // Update status indicator
-  statusIndicator.classList.remove('connected', 'connecting', 'searching', 'downloading');
+  statusIndicator.classList.remove('connected', 'connecting', 'searching', 'downloading', 'error');
   connectBtn.classList.remove('connected', 'connecting', 'downloading');
+  statusText.classList.remove('error-text');
   
   if (isDownloading) {
     statusIndicator.classList.add('downloading');
@@ -129,33 +205,74 @@ function handleStatusUpdate(status) {
     connectBtn.querySelector('.btn-text').textContent = 'Скачивание...';
     downloadSection.style.display = 'block';
     updateBinaryStatus(false, true);
+    hideStrategyProgress();
+    hideConnectionTimer();
+    hideServiceBadges();
   } else if (status.searching) {
     statusIndicator.classList.add('searching');
     statusText.textContent = 'Поиск стратегии...';
     connectBtn.classList.add('connecting');
     connectBtn.querySelector('.btn-text').textContent = 'Поиск...';
     downloadSection.style.display = 'none';
+    hideConnectionTimer();
+    hideServiceBadges();
+    
+    // Show strategy progress
+    if (status.strategyProgress) {
+      showStrategyProgress(status.strategyProgress);
+    }
   } else if (isConnected) {
     statusIndicator.classList.add('connected');
     statusText.textContent = 'Защита активна';
     connectBtn.classList.add('connected');
     connectBtn.querySelector('.btn-text').textContent = 'Отключить';
     downloadSection.style.display = 'none';
+    hideStrategyProgress();
+    hideError();
+    showServiceBadges();
+    
+    // Start connection timer
+    if (status.connectedSince) {
+      startConnectionTimer(status.connectedSince);
+    }
   } else if (isConnecting) {
     statusIndicator.classList.add('connecting');
     statusText.textContent = 'Подключение...';
     connectBtn.classList.add('connecting');
     connectBtn.querySelector('.btn-text').textContent = 'Подключение...';
     downloadSection.style.display = 'none';
+    hideConnectionTimer();
+    hideServiceBadges();
   } else {
-    statusText.textContent = 'Отключено';
-    connectBtn.querySelector('.btn-text').textContent = 'Подключить';
+    // Disconnected state
     downloadSection.style.display = 'none';
+    hideStrategyProgress();
+    hideConnectionTimer();
+    hideServiceBadges();
+    
+    // Check for errors
+    if (status.error || status.errorCode) {
+      statusIndicator.classList.add('error');
+      statusText.textContent = 'Ошибка';
+      statusText.classList.add('error-text');
+      connectBtn.querySelector('.btn-text').textContent = 'Подключить';
+      showError(status.errorCode, status.error);
+    } else if (status.disconnectReason) {
+      statusIndicator.classList.add('error');
+      statusText.textContent = 'Отключено';
+      connectBtn.querySelector('.btn-text').textContent = 'Подключить';
+      showDisconnectReason(status.disconnectReason);
+    } else {
+      statusText.textContent = 'Отключено';
+      connectBtn.querySelector('.btn-text').textContent = 'Подключить';
+    }
   }
   
   // Update strategy text
   if (status.strategy) {
     strategyText.textContent = `Стратегия: ${status.strategy}`;
+  } else if (status.strategyProgress && status.strategyProgress.name) {
+    strategyText.textContent = '';
   } else {
     strategyText.textContent = '';
   }
@@ -165,6 +282,137 @@ function handleStatusUpdate(status) {
     updateBinaryStatus(status.binaryExists);
   }
 }
+
+// ============= Strategy Progress =============
+
+function showStrategyProgress(progress) {
+  strategyProgress.style.display = 'block';
+  strategyProgressText.textContent = 'Тестирование стратегии...';
+  strategyProgressCount.textContent = `${progress.current}/${progress.total}`;
+  strategyProgressName.textContent = progress.name || '';
+  
+  const percent = Math.round((progress.current / progress.total) * 100);
+  strategyProgressFill.style.width = `${percent}%`;
+}
+
+function hideStrategyProgress() {
+  strategyProgress.style.display = 'none';
+}
+
+// ============= Connection Timer =============
+
+function startConnectionTimer(sinceTimestamp) {
+  connectedSinceTime = sinceTimestamp;
+  connectionTimer.style.display = 'flex';
+  updateTimerDisplay();
+  
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(updateTimerDisplay, 1000);
+}
+
+function hideConnectionTimer() {
+  connectionTimer.style.display = 'none';
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+  connectedSinceTime = null;
+}
+
+function updateTimerDisplay() {
+  if (!connectedSinceTime) return;
+  
+  const elapsed = Math.floor((Date.now() - connectedSinceTime) / 1000);
+  const hours = Math.floor(elapsed / 3600);
+  const minutes = Math.floor((elapsed % 3600) / 60);
+  const seconds = elapsed % 60;
+  
+  timerText.textContent = `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+// ============= Service Badges =============
+
+function showServiceBadges() {
+  serviceBadges.style.display = 'flex';
+}
+
+function hideServiceBadges() {
+  serviceBadges.style.display = 'none';
+}
+
+// ============= Error Display =============
+
+function showError(errorCode, errorMsg) {
+  errorCard.style.display = 'block';
+  
+  const title = ERROR_TITLES[errorCode] || 'Ошибка подключения';
+  errorTitle.textContent = title;
+  errorMessage.textContent = errorMsg || 'Произошла неизвестная ошибка';
+  
+  // Show retry button for recoverable errors
+  const retryable = ['ALL_STRATEGIES_FAILED', 'PROCESS_CRASHED', 'DOWNLOAD_FAILED', 'NETWORK_UNAVAILABLE'];
+  retryBtn.style.display = retryable.includes(errorCode) ? 'flex' : 'none';
+}
+
+function showDisconnectReason(reason) {
+  const reasons = {
+    'PROCESS_CRASHED': 'Процесс обхода завершился неожиданно. Попробуйте подключиться снова.',
+    'PROCESS_EXITED': 'Процесс обхода остановился. Попробуйте подключиться снова.'
+  };
+  
+  const msg = reasons[reason] || 'Соединение было прервано';
+  showError(reason, msg);
+}
+
+function hideError() {
+  errorCard.style.display = 'none';
+}
+
+// ============= Logs =============
+
+function handleLogEntry(entry) {
+  addLogEntry(entry);
+}
+
+function addLogEntry(entry) {
+  logCount++;
+  logsCount.textContent = logCount;
+  
+  const el = document.createElement('div');
+  el.className = `log-entry ${entry.type || 'info'}`;
+  
+  const time = new Date(entry.timestamp);
+  const timeStr = `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}:${String(time.getSeconds()).padStart(2, '0')}`;
+  
+  el.innerHTML = `
+    <span class="log-time">${timeStr}</span>
+    <span class="log-dot"></span>
+    <span class="log-message">${escapeHtml(entry.message)}</span>
+  `;
+  
+  logsList.appendChild(el);
+  
+  // Keep only last 100 entries in DOM
+  while (logsList.children.length > 100) {
+    logsList.removeChild(logsList.firstChild);
+  }
+  
+  // Auto-scroll if at bottom
+  if (logsOpen) {
+    const isAtBottom = logsList.scrollHeight - logsList.scrollTop - logsList.clientHeight < 50;
+    if (isAtBottom) {
+      logsList.scrollTop = logsList.scrollHeight;
+    }
+  }
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ============= Download Progress =============
 
 function handleDownloadProgress(progress) {
   downloadSection.style.display = 'block';
@@ -178,6 +426,8 @@ function handleDownloadProgress(progress) {
   }
 }
 
+// ============= Connect/Disconnect =============
+
 async function handleConnectClick() {
   if (isConnecting || isDownloading) return;
   
@@ -186,20 +436,26 @@ async function handleConnectClick() {
     try {
       await window.api.stopProxy();
     } catch (error) {
-      // silently handle
+      showError(null, `Ошибка при отключении: ${error.message}`);
     }
   } else {
     // Connect
     isConnecting = true;
+    hideError();
+    statusIndicator.classList.remove('error');
     statusIndicator.classList.add('connecting');
     statusText.textContent = 'Подключение...';
+    statusText.classList.remove('error-text');
     connectBtn.classList.add('connecting');
     connectBtn.querySelector('.btn-text').textContent = 'Подключение...';
     
     try {
-      await window.api.startProxy();
+      const result = await window.api.startProxy();
+      if (!result.success && result.error) {
+        // Error is handled via status update from backend
+      }
     } catch (error) {
-      // silently handle
+      showError(null, `Ошибка подключения: ${error.message}`);
     } finally {
       isConnecting = false;
       // Sync UI with actual backend state after connect attempt
@@ -208,7 +464,8 @@ async function handleConnectClick() {
   }
 }
 
-// Auto-update handlers
+// ============= Auto-update handlers =============
+
 function handleUpdateStatus(data) {
   const { status, version } = data;
   

@@ -19,7 +19,8 @@
 
 | Платформа | Файл | Описание |
 |-----------|------|----------|
-| **macOS** (Intel + Apple Silicon) | [UnblockPro-mac.zip](https://github.com/by-sonic/unblock-pro/releases/latest) | Распаковать → перетащить в Программы |
+| **macOS** Apple Silicon (M1/M2/M3/M4) | [UnblockPro-mac-arm64.zip](https://github.com/by-sonic/unblock-pro/releases/latest) | Для Mac с M-процессором |
+| **macOS** Intel | [UnblockPro-mac-x64.zip](https://github.com/by-sonic/unblock-pro/releases/latest) | Для Mac с Intel |
 | **Windows** | [UnblockPro-win-setup.exe](https://github.com/by-sonic/unblock-pro/releases/latest) | Установщик |
 | **Windows** | [UnblockPro-win-portable.exe](https://github.com/by-sonic/unblock-pro/releases/latest) | Портативная версия (без установки) |
 

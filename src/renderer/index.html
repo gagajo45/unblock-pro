@@ -52,6 +52,69 @@
         </div>
         <div class="status-text" id="statusText">Отключено</div>
         <div class="status-strategy" id="strategyText"></div>
+        <!-- Connection timer -->
+        <div class="connection-timer" id="connectionTimer" style="display: none;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+            <path d="M12 6v6l4 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <span id="timerText">0:00:00</span>
+        </div>
+        <!-- Service badges -->
+        <div class="service-badges" id="serviceBadges" style="display: none;">
+          <span class="service-badge discord">
+            <svg width="16" height="12" viewBox="0 0 71 55" fill="currentColor">
+              <path d="M60.1 4.9A58.5 58.5 0 0045.4.2a.2.2 0 00-.2.1 40.8 40.8 0 00-1.8 3.7 54 54 0 00-16.2 0A37.4 37.4 0 0025.4.3a.2.2 0 00-.2-.1A58.4 58.4 0 0010.5 5a.2.2 0 00-.1 0C1.5 18.7-.9 32 .3 45.2v.1a58.7 58.7 0 0017.7 9 .2.2 0 00.3-.1 42 42 0 003.6-5.9.2.2 0 00-.1-.3 38.7 38.7 0 01-5.5-2.6.2.2 0 01 0-.4l1.1-.9a.2.2 0 01.2 0 41.9 41.9 0 0035.6 0 .2.2 0 01.2 0l1.1.9a.2.2 0 010 .3 36.3 36.3 0 01-5.5 2.7.2.2 0 00-.1.3 47.2 47.2 0 003.6 5.9.2.2 0 00.3.1A58.5 58.5 0 0070.3 45.3v-.1C71.7 30.1 67.8 17 60.2 5a.2.2 0 000 0zM23.7 37.1c-3.5 0-6.4-3.2-6.4-7.1s2.8-7.1 6.4-7.1 6.5 3.2 6.4 7.1c0 3.9-2.8 7.1-6.4 7.1zm23.6 0c-3.5 0-6.4-3.2-6.4-7.1s2.8-7.1 6.4-7.1 6.5 3.2 6.4 7.1c0 3.9-2.9 7.1-6.4 7.1z"/>
+            </svg>
+            Discord
+          </span>
+          <span class="service-badge youtube">
+            <svg width="16" height="12" viewBox="0 0 24 18" fill="currentColor">
+              <path d="M23.5 2.8A3 3 0 0021.4.7C19.5.2 12 .2 12 .2S4.5.2 2.6.7A3 3 0 00.5 2.8 31.4 31.4 0 000 9a31.4 31.4 0 00.5 6.2A3 3 0 002.6 17.3c1.9.5 9.4.5 9.4.5s7.5 0 9.4-.5a3 3 0 002.1-2.1A31.4 31.4 0 0024 9a31.4 31.4 0 00-.5-6.2zM9.6 12.8V5.2L15.8 9l-6.2 3.8z"/>
+            </svg>
+            YouTube
+          </span>
+        </div>
+      </div>
+
+      <!-- Strategy progress -->
+      <div class="strategy-progress" id="strategyProgress" style="display: none;">
+        <div class="strategy-progress-header">
+          <span class="strategy-progress-text" id="strategyProgressText">Тестирование стратегии...</span>
+          <span class="strategy-progress-count" id="strategyProgressCount">0/0</span>
+        </div>
+        <div class="strategy-progress-bar">
+          <div class="strategy-progress-fill" id="strategyProgressFill"></div>
+        </div>
+        <div class="strategy-progress-name" id="strategyProgressName"></div>
+      </div>
+
+      <!-- Error card -->
+      <div class="error-card" id="errorCard" style="display: none;">
+        <div class="error-card-content">
+          <div class="error-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+              <path d="M12 8v4m0 4h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="error-text">
+            <div class="error-title" id="errorTitle">Ошибка</div>
+            <div class="error-message" id="errorMessage"></div>
+          </div>
+          <button class="error-dismiss" id="errorDismiss" title="Закрыть">
+            <svg width="14" height="14" viewBox="0 0 14 14">
+              <path d="M1 1L13 13M13 1L1 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <button class="retry-btn" id="retryBtn" style="display: none;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M1 4v6h6M23 20v-6h-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M20.5 9A9 9 0 005.6 5.6L1 10m22 4l-4.6 4.4A9 9 0 013.5 15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Повторить попытку
+        </button>
       </div>
 
       <!-- Download progress -->
@@ -65,11 +128,6 @@
 
       <!-- Connect button -->
       <button class="connect-btn" id="connectBtn">
-        <span class="btn-icon">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-            <path d="M12 2L12 22M12 2L5 9M12 2L19 9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </span>
         <span class="btn-text">Подключить</span>
       </button>
 
@@ -97,6 +155,26 @@
         </div>
       </div>
 
+      <!-- Logs panel -->
+      <div class="logs-card" id="logsCard">
+        <button class="logs-header" id="logsToggle">
+          <div class="logs-header-left">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M14 2v6h6M16 13H8m8 4H8m2-8H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>Журнал</span>
+            <span class="logs-count" id="logsCount">0</span>
+          </div>
+          <svg class="logs-chevron" id="logsChevron" width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <div class="logs-body" id="logsBody" style="display: none;">
+          <div class="logs-list" id="logsList"></div>
+        </div>
+      </div>
+
       <!-- Info card -->
       <div class="info-card">
         <div class="info-header">
@@ -107,7 +185,7 @@
           <span>Как это работает</span>
         </div>
         <div class="info-text">
-          Приложение автоматически находит рабочую стратегию обхода DPI для вашего провайдера и разблокирует Discord, YouTube и другие сервисы.
+          Приложение автоматически находит рабочую стратегию обхода DPI для вашего провайдера и разблокирует Discord, YouTube и другие сервисы. Все работает локально, без VPN-серверов.
         </div>
       </div>
 
