@@ -110,85 +110,138 @@ function getBinaryPath() {
   return null;
 }
 
-// DPI bypass strategies to try (ordered by success rate)
+// DPI bypass strategies — based on Flowseal/zapret-discord-youtube (22k+ stars)
 const STRATEGIES = {
   darwin: [
-    // Strategy 1: Split + disorder (most common, works on most ISPs)
+    // === BASIC (work on most ISPs) ===
     {
       name: 'split+disorder',
       args: ['--port', '1080', '--socks', '--split-pos=1', '--disorder', '--hostcase']
     },
-    // Strategy 2: Split at TLS + midsld
     {
-      name: 'split-tls',
-      args: ['--port', '1080', '--socks', '--split-pos=1,midsld', '--disorder=tls', '--hostcase']
+      name: 'split-midsld+disorder',
+      args: ['--port', '1080', '--socks', '--split-pos=1,midsld', '--disorder', '--hostcase']
     },
-    // Strategy 3: Split at position 2 + disorder
     {
       name: 'split2+disorder',
       args: ['--port', '1080', '--socks', '--split-pos=2', '--disorder', '--hostcase']
     },
-    // Strategy 4: Method EOL
+    // === TLS-AWARE ===
     {
-      name: 'methodeol',
+      name: 'tlsrec+split+disorder',
+      args: ['--port', '1080', '--socks', '--tlsrec=sni', '--split-pos=1', '--disorder', '--hostcase']
+    },
+    {
+      name: 'split-tls+disorder',
+      args: ['--port', '1080', '--socks', '--split-pos=1,midsld', '--disorder=tls', '--hostcase']
+    },
+    // === HOST MANIPULATION ===
+    {
+      name: 'methodeol+split',
       args: ['--port', '1080', '--socks', '--methodeol', '--split-pos=1', '--hostcase']
     },
-    // Strategy 5: OOB byte
     {
-      name: 'oob',
+      name: 'hostdot+split+disorder',
+      args: ['--port', '1080', '--socks', '--hostdot', '--split-pos=1,midsld', '--disorder']
+    },
+    {
+      name: 'hostpad+split+disorder',
+      args: ['--port', '1080', '--socks', '--hostpad=256', '--split-pos=1', '--disorder', '--hostcase']
+    },
+    // === OOB ===
+    {
+      name: 'oob+split+disorder',
       args: ['--port', '1080', '--socks', '--oob', '--split-pos=1', '--disorder']
     },
-    // Strategy 6: tlsrec + split
     {
-      name: 'tlsrec+split',
-      args: ['--port', '1080', '--socks', '--tlsrec=sni', '--split-pos=1', '--disorder']
+      name: 'oob+methodeol+split',
+      args: ['--port', '1080', '--socks', '--oob', '--methodeol', '--split-pos=1', '--hostcase']
     },
-    // Strategy 7: Split at SNI middle + hostdot
+    // === COMBINED (aggressive) ===
     {
-      name: 'hostdot+split',
-      args: ['--port', '1080', '--socks', '--split-pos=1,midsld', '--disorder', '--hostdot']
-    },
-    // Strategy 8: All combined
-    {
-      name: 'combined',
+      name: 'combined-v1',
       args: ['--port', '1080', '--socks', '--split-pos=1,midsld', '--disorder', '--hostcase', '--methodeol']
     },
-    // Strategy 9: Minimal — just split (for strict DPI)
+    {
+      name: 'combined-v2',
+      args: ['--port', '1080', '--socks', '--oob', '--methodeol', '--split-pos=1,midsld', '--disorder', '--hostcase', '--hostdot']
+    },
+    {
+      name: 'combined-v3',
+      args: ['--port', '1080', '--socks', '--tlsrec=sni', '--hostpad=256', '--split-pos=2', '--disorder', '--hostcase']
+    },
+    // === MINIMAL (last resort) ===
     {
       name: 'split-only',
       args: ['--port', '1080', '--socks', '--split-pos=1']
     },
-    // Strategy 10: OOB + methodeol + disorder (aggressive)
     {
-      name: 'aggressive',
-      args: ['--port', '1080', '--socks', '--oob', '--methodeol', '--split-pos=1,midsld', '--disorder', '--hostcase']
+      name: 'disorder-only',
+      args: ['--port', '1080', '--socks', '--disorder']
     }
   ],
+  // Windows strategies based on Flowseal/zapret-discord-youtube
   win32: [
-    // Strategy 1: Fake + multidisorder
+    // Strategy: general.bat — multisplit seqovl=568 (Flowseal default)
+    {
+      name: 'multisplit-568',
+      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
+        '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=568',
+        '--dpi-desync-split-pos=1']
+    },
+    // Strategy: general (ALT).bat — fake+fakedsplit with fooling=ts
+    {
+      name: 'fake+fakedsplit-ts',
+      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
+        '--dpi-desync=fake,fakedsplit', '--dpi-desync-repeats=6',
+        '--dpi-desync-fooling=ts', '--dpi-desync-fakedsplit-pattern=0x00']
+    },
+    // Strategy: general (ALT2).bat — multisplit seqovl=652 pos=2
+    {
+      name: 'multisplit-652',
+      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
+        '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=652',
+        '--dpi-desync-split-pos=2']
+    },
+    // Strategy: fake+multidisorder (classic)
     {
       name: 'fake+multidisorder',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443', '--dpi-desync=fake,multidisorder', '--dpi-desync-split-pos=1,midsld', '--dpi-desync-fooling=badseq,md5sig']
+      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
+        '--dpi-desync=fake,multidisorder', '--dpi-desync-split-pos=1,midsld',
+        '--dpi-desync-fooling=badseq,md5sig']
     },
-    // Strategy 2: Fake + split2
+    // Strategy: multisplit seqovl=681 (for Google/YT)
+    {
+      name: 'multisplit-681',
+      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
+        '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=681',
+        '--dpi-desync-split-pos=1']
+    },
+    // Strategy: fake with repeats
+    {
+      name: 'fake-repeat6',
+      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
+        '--dpi-desync=fake', '--dpi-desync-repeats=6',
+        '--dpi-desync-fooling=badseq']
+    },
+    // Strategy: fake+split2 (fallback)
     {
       name: 'fake+split2',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--dpi-desync=fake,split2', '--dpi-desync-split-pos=1', '--dpi-desync-fooling=badseq']
+      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
+        '--dpi-desync=fake,split2', '--dpi-desync-split-pos=1',
+        '--dpi-desync-fooling=badseq']
     },
-    // Strategy 3: Fake + fakedsplit
+    // Strategy: multidisorder only (simple)
     {
-      name: 'fake+fakedsplit',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--dpi-desync=fake,fakedsplit', '--dpi-desync-split-pos=2', '--dpi-desync-fooling=md5sig']
+      name: 'multidisorder',
+      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--wf-udp=443',
+        '--dpi-desync=multidisorder', '--dpi-desync-split-pos=1,midsld']
     },
-    // Strategy 4: Disorder only
-    {
-      name: 'disorder',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--dpi-desync=multidisorder', '--dpi-desync-split-pos=1,midsld']
-    },
-    // Strategy 5: Syndata
+    // Strategy: syndata (last resort)
     {
       name: 'syndata',
-      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443', '--dpi-desync=syndata', '--dpi-desync-fake-tls=0x00000000']
+      args: ['--wf-l3=ipv4,ipv6', '--wf-tcp=80,443',
+        '--dpi-desync=syndata', '--dpi-desync-fake-tls=0x00000000']
     }
   ]
 };
