@@ -170,17 +170,32 @@ function updateTrayMenu() {
 
 function downloadFileDirect(url, dest) {
   return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(dest);
+    let file;
+    try {
+      file = fs.createWriteStream(dest);
+    } catch (err) {
+      // EPERM / EBUSY — file locked by antivirus or previous process
+      reject(new Error(`Cannot write to ${dest}: ${err.message}`));
+      return;
+    }
+    
+    file.on('error', (err) => {
+      file.close();
+      try { fs.unlinkSync(dest); } catch (e) {}
+      reject(err);
+    });
     
     const request = https.get(url, (response) => {
       if (response.statusCode === 302 || response.statusCode === 301) {
         file.close();
-        fs.unlinkSync(dest);
+        try { fs.unlinkSync(dest); } catch (e) {}
         downloadFileDirect(response.headers.location, dest).then(resolve).catch(reject);
         return;
       }
       
       if (response.statusCode !== 200) {
+        file.close();
+        try { fs.unlinkSync(dest); } catch (e) {}
         reject(new Error(`HTTP ${response.statusCode}`));
         return;
       }
@@ -205,7 +220,8 @@ function downloadFileDirect(url, dest) {
     });
     
     request.on('error', (err) => {
-      fs.unlink(dest, () => {});
+      file.close();
+      try { fs.unlinkSync(dest); } catch (e) {}
       reject(err);
     });
     
@@ -231,6 +247,9 @@ async function downloadAndExtractBinaries() {
   const tempDir = path.join(app.getPath('temp'), 'unblock-pro-temp');
   
   try {
+    // Clean up any leftover temp files from previous attempts (fixes EPERM on Windows)
+    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (e) {}
+    
     // Create directories
     fs.mkdirSync(binDir, { recursive: true });
     fs.mkdirSync(platformDir, { recursive: true });
@@ -242,6 +261,9 @@ async function downloadAndExtractBinaries() {
     }
     
     const zipPath = path.join(tempDir, 'zapret.zip');
+    
+    // Remove stale zip if it exists (Windows file locking)
+    try { if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath); } catch (e) {}
     
     // Download
     await downloadFile(downloadUrl, zipPath);
