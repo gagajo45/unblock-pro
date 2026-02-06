@@ -913,7 +913,9 @@ async function startProxy() {
       } else if (process.platform === 'win32') {
         // Windows - winws.exe intercepts traffic at driver level via WinDivert
         // No proxy configuration needed — it modifies packets in-flight
-        const command = `"${finalBinaryPath}" ${strategy.args.join(' ')}`;
+        // MUST cd to binary directory so WinDivert can find its driver files (WinDivert64.sys)
+        const binDirectory = path.dirname(finalBinaryPath);
+        const command = `cd /d "${binDirectory}" && "${finalBinaryPath}" ${strategy.args.join(' ')}`;
         
         return new Promise((resolve) => {
           sudo.exec(command, { name: 'UnblockPro' }, (error) => {
@@ -951,6 +953,7 @@ async function startProxy() {
           // Also try direct spawn for process tracking
           try {
             proxyProcess = spawn(finalBinaryPath, strategy.args, {
+              cwd: binDirectory,
               detached: false,
               stdio: ['ignore', 'pipe', 'pipe'],
               windowsHide: true
