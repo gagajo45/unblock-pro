@@ -136,7 +136,10 @@ const HOST_LIST_GENERAL = [
   'discord.gifts', 'discord.gg', 'discord.media', 'discord.new', 'discord.store', 'discord.status',
   'discord-activities.com', 'discordactivities.com', 'discordapp.com', 'discordapp.net',
   'discordcdn.com', 'discordmerch.com', 'discordpartygames.com', 'discordsays.com',
-  'discordsez.com', 'discordstatus.com', 'updates.discord.com', 'frankerfacez.com', 'ffzap.com', 'betterttv.net',
+  'discordsez.com', 'discordstatus.com', 'updates.discord.com',
+  'gateway.discord.gg', 'cdn.discordapp.com', 'dl.discordapp.net',
+  'media.discordapp.net', 'images-ext-1.discordapp.net', 'images-ext-2.discordapp.net',
+  'frankerfacez.com', 'ffzap.com', 'betterttv.net',
   '7tv.app', '7tv.io', 'localizeapi.com',
   // YouTube / Google
   'youtube.com', 'youtu.be', 'yt.be', 'ytimg.com', 'googlevideo.com', 'youtube-nocookie.com',
@@ -158,19 +161,20 @@ const HOST_LIST_DISCORD = [
   'discord.app', 'discord.design', 'discord.dev', 'discord-activities.com', 'discordactivities.com',
   'discordcdn.com', 'discordmerch.com', 'discordpartygames.com', 'discordsays.com', 'discordsez.com',
   'discordstatus.com', 'dis.gd', 'gateway.discord.gg', 'cdn.discordapp.com', 'dl.discordapp.net',
-  'updates.discord.com', 'discord-attachments-uploads-prd.storage.googleapis.com'
+  'updates.discord.com', 'discord-attachments-uploads-prd.storage.googleapis.com',
+  'media.discordapp.net', 'images-ext-1.discordapp.net', 'images-ext-2.discordapp.net',
+  'router.discordapp.net'
 ].join('\n');
 
 function ensureHostLists() {
-  if (hostListsDir && fs.existsSync(hostListsDir)) return hostListsDir;
-  
   hostListsDir = path.join(app.getPath('userData'), 'lists');
   fs.mkdirSync(hostListsDir, { recursive: true });
-  
+
+  // Always rewrite host lists to pick up domain list updates
   fs.writeFileSync(path.join(hostListsDir, 'list-general.txt'), HOST_LIST_GENERAL, 'utf8');
   fs.writeFileSync(path.join(hostListsDir, 'list-google.txt'), HOST_LIST_GOOGLE, 'utf8');
   fs.writeFileSync(path.join(hostListsDir, 'list-discord.txt'), HOST_LIST_DISCORD, 'utf8');
-  
+
   return hostListsDir;
 }
 
@@ -324,9 +328,10 @@ function buildWin32Strategies(binDir, listsDir) {
   }
   
   // Discord media TCP rule (ports 2053,2083,2087,2096,8443)
+  // No hostlist — these ports are almost exclusively used by Discord voice/media
   function discordMediaRule(method, extraArgs = []) {
     return [
-      '--filter-tcp=2053,2083,2087,2096,8443', '--hostlist-domains=discord.media',
+      '--filter-tcp=2053,2083,2087,2096,8443',
       `--dpi-desync=${method}`, ...extraArgs, '--new'
     ];
   }
@@ -347,10 +352,11 @@ function buildWin32Strategies(binDir, listsDir) {
     ];
   }
   
-  // General TCP rule
+  // General TCP rule — catch-all for ALL remaining traffic (no hostlist filter)
+  // This ensures .ru and any other blocked sites get DPI bypass too
   function generalTcpRule(method, extraArgs = []) {
     return [
-      '--filter-tcp=80,443', `--hostlist=${l('list-general.txt')}`,
+      '--filter-tcp=80,443',
       `--dpi-desync=${method}`, ...extraArgs
     ];
   }
@@ -405,7 +411,7 @@ function buildWin32Strategies(binDir, listsDir) {
       ...WF_FULL,
       ...udpRules(6),
       '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
-      '--filter-tcp=80', `--hostlist=${l('list-general.txt')}`,
+      '--filter-tcp=80',
       '--dpi-desync=fake', '--dpi-desync-repeats=6'
     ]},
 
@@ -419,7 +425,7 @@ function buildWin32Strategies(binDir, listsDir) {
       '--dpi-desync=fake', '--dpi-desync-repeats=4', '--dpi-desync-fake-tls-mod=none', '--new',
       ...discordTcp443Rule('fake', ['--dpi-desync-repeats=4', '--dpi-desync-fake-tls-mod=none']),
       '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
-      '--filter-tcp=80', `--hostlist=${l('list-general.txt')}`,
+      '--filter-tcp=80',
       '--dpi-desync=fake', '--dpi-desync-repeats=4', '--dpi-desync-fake-tls-mod=none'
     ]},
     // === COMBO: Discord badseq + syndata YouTube ===
@@ -435,7 +441,7 @@ function buildWin32Strategies(binDir, listsDir) {
       // All other TCP 443 — syndata+multidisorder (YouTube + everything else)
       '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
       // TCP 80 HTTP fallback
-      '--filter-tcp=80', `--hostlist=${l('list-general.txt')}`,
+      '--filter-tcp=80',
       '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq'
     ]},
     // === COMBO #2: Discord-first (multisplit for Discord 443) + syndata (YouTube/rest) ===
@@ -450,7 +456,7 @@ function buildWin32Strategies(binDir, listsDir) {
       // All other TCP 443 — syndata
       '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
       // TCP 80
-      '--filter-tcp=80', `--hostlist=${l('list-general.txt')}`,
+      '--filter-tcp=80',
       '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1'
     ]},
     // === COMBO #3: Discord-first (fake md5sig for Discord 443) + syndata (YouTube/rest) ===
@@ -467,7 +473,7 @@ function buildWin32Strategies(binDir, listsDir) {
       // All other TCP 443 — syndata
       '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
       // TCP 80
-      '--filter-tcp=80', `--hostlist=${l('list-general.txt')}`,
+      '--filter-tcp=80',
       '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=ts,md5sig'
     ]},
     // === COMBO #4: Discord-first (split2 for Discord 443) + syndata (YouTube/rest) ===
@@ -483,7 +489,7 @@ function buildWin32Strategies(binDir, listsDir) {
       // All other TCP 443 — syndata
       '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
       // TCP 80
-      '--filter-tcp=80', `--hostlist=${l('list-general.txt')}`,
+      '--filter-tcp=80',
       '--dpi-desync=fake,split2', '--dpi-desync-autottl=5', '--dpi-desync-repeats=6'
     ]},
 
@@ -1875,10 +1881,12 @@ function stopProxy() {
     try { execSync('pkill -f tpws 2>/dev/null', { stdio: 'pipe' }); } catch (e) {}
   } else if (process.platform === 'win32') {
     try {
-      execSync('taskkill /F /IM winws.exe', { stdio: 'pipe' });
+      execSync('taskkill /F /IM winws.exe', { stdio: 'pipe', timeout: 3000 });
     } catch (e) {
-      // If direct kill fails (elevated process), try via sudo
-      try { sudo.exec('taskkill /F /IM winws.exe', { name: 'UnblockPro' }, () => {}); } catch (e2) {}
+      // If direct kill fails (elevated process), try elevated taskkill
+      try {
+        execSync('powershell -command "Start-Process taskkill -ArgumentList \'/F\',\'/IM\',\'winws.exe\' -Verb RunAs -WindowStyle Hidden -Wait"', { stdio: 'pipe', timeout: 5000 });
+      } catch (e2) {}
     }
   }
 
@@ -2268,9 +2276,18 @@ if (!gotTheLock) {
     if (process.platform !== 'darwin') app.quit();
   });
 
+  app.on('will-quit', () => {
+    emergencyCleanup();
+  });
+
   app.on('before-quit', () => {
     app.isQuitting = true;
     stopProxy();
+    // Synchronous force-kill as a safety net — ensures winws.exe is dead before process exits,
+    // even if it was started elevated. Without this, internet breaks after app close.
+    if (process.platform === 'win32') {
+      try { execSync('taskkill /F /IM winws.exe', { stdio: 'pipe', timeout: 5000 }); } catch (e) {}
+    }
   });
 
   // Ensure proxy cleanup on any exit scenario
@@ -2281,7 +2298,12 @@ if (!gotTheLock) {
     if (process.platform === 'darwin') {
       try { execSync('pkill -f tpws 2>/dev/null', { stdio: 'pipe' }); } catch (e) {}
     } else if (process.platform === 'win32') {
-      try { execSync('taskkill /F /IM winws.exe', { stdio: 'pipe' }); } catch (e) {}
+      // Try normal taskkill first, then elevated if it fails (winws may be running as admin)
+      try { execSync('taskkill /F /IM winws.exe', { stdio: 'pipe', timeout: 3000 }); } catch (e) {
+        try {
+          execSync('powershell -command "Start-Process taskkill -ArgumentList \'/F\',\'/IM\',\'winws.exe\' -Verb RunAs -WindowStyle Hidden -Wait"', { stdio: 'pipe', timeout: 5000 });
+        } catch (e2) {}
+      }
     }
   }
 
