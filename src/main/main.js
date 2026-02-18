@@ -2116,6 +2116,9 @@ function stopProxy() {
 // ============= WINDOW & TRAY =============
 
 function createWindow() {
+  const appIconPath = path.join(__dirname, 'icons', 'app-icon.png');
+  const windowIcon = fs.existsSync(appIconPath) ? nativeImage.createFromPath(appIconPath) : undefined;
+
   mainWindow = new BrowserWindow({
     width: 420,
     height: 560,
@@ -2125,6 +2128,7 @@ function createWindow() {
     transparent: true,
     resizable: true,
     show: false,
+    icon: windowIcon,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -2157,28 +2161,39 @@ function createWindow() {
 }
 
 function createTray() {
-  const size = 16;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-    <rect width="${size}" height="${size}" rx="3" fill="#3b82f6"/>
-    <text x="${size/2}" y="${size*0.7}" font-family="Arial" font-size="10" font-weight="bold" fill="white" text-anchor="middle">U</text>
-  </svg>`;
-  
-  let trayIcon = nativeImage.createFromDataURL(
-    `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`
-  );
-  
+  const iconDir = path.join(__dirname, 'icons');
+  let trayIcon;
+
   if (process.platform === 'darwin') {
+    // macOS: 16x16 colored icon — Electron handles retina via @2x automatically
+    trayIcon = nativeImage.createFromPath(path.join(iconDir, 'tray-16.png'));
     trayIcon = trayIcon.resize({ width: 16, height: 16 });
-    trayIcon.setTemplateImage(true);
+  } else {
+    // Windows: 32x32 colored icon for system tray
+    trayIcon = nativeImage.createFromPath(path.join(iconDir, 'tray-32.png'));
   }
-  
+
+  // Fallback: if PNG failed to load, create a simple canvas-based icon
+  if (trayIcon.isEmpty()) {
+    const size = process.platform === 'darwin' ? 16 : 32;
+    trayIcon = nativeImage.createEmpty();
+    try {
+      const fallbackPng = path.join(iconDir, 'tray-64.png');
+      if (fs.existsSync(fallbackPng)) {
+        trayIcon = nativeImage.createFromPath(fallbackPng).resize({ width: size, height: size });
+      }
+    } catch (e) {}
+  }
+
   tray = new Tray(trayIcon);
   tray.setToolTip('UnblockPro');
-  
+
   updateTrayMenu();
-  
+
   tray.on('click', () => {
-    mainWindow.isVisible() ? mainWindow.hide() : mainWindow.show();
+    if (mainWindow) {
+      mainWindow.isVisible() ? mainWindow.hide() : mainWindow.show();
+    }
   });
 }
 

@@ -60,7 +60,7 @@
     ],
     "mac": {
       "category": "public.app-category.utilities",
-      "icon": "assets/icon.icns",
+      "icon": "assets/sonic-icon.icns",
       "target": [
         {
           "target": "zip",
@@ -75,7 +75,7 @@
       "artifactName": "UnblockPro-${version}-mac-${arch}.${ext}"
     },
     "win": {
-      "icon": "assets/icon.ico",
+      "icon": "assets/sonic-icon.ico",
       "target": [
         {
           "target": "nsis",
