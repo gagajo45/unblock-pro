@@ -53,17 +53,20 @@ function applyAutoStart(enabled) {
 // Dynamically fetch the latest zapret release URL from GitHub API
 function getLatestZapretUrl() {
   return new Promise((resolve, reject) => {
-    https.get('https://api.github.com/repos/bol-van/zapret/releases/latest', {
-      headers: { 'User-Agent': 'UnblockPro' }
+    const req = https.get('https://api.github.com/repos/bol-van/zapret/releases/latest', {
+      headers: { 'User-Agent': 'UnblockPro' },
+      timeout: 30000
     }, (res) => {
       if (res.statusCode === 302 || res.statusCode === 301) {
-        https.get(res.headers.location, { headers: { 'User-Agent': 'UnblockPro' } }, (r) => {
+        const rReq = https.get(res.headers.location, { headers: { 'User-Agent': 'UnblockPro' }, timeout: 30000 }, (r) => {
           let data = '';
           r.on('data', chunk => data += chunk);
           r.on('end', () => {
             try { resolve(findZipAsset(JSON.parse(data))); } catch (e) { reject(e); }
           });
-        }).on('error', reject);
+        });
+        rReq.on('error', reject);
+        rReq.on('timeout', () => { rReq.destroy(); reject(new Error('Timeout')); });
         return;
       }
       let data = '';
@@ -71,7 +74,9 @@ function getLatestZapretUrl() {
       res.on('end', () => {
         try { resolve(findZipAsset(JSON.parse(data))); } catch (e) { reject(e); }
       });
-    }).on('error', reject);
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
   });
 }
 
@@ -888,13 +893,12 @@ function updateTrayMenu() {
 
 // ============= BINARY DOWNLOAD =============
 
-function downloadFileDirect(url, dest) {
+function downloadFileDirect(url, dest, timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
     let file;
     try {
       file = fs.createWriteStream(dest);
     } catch (err) {
-      // EPERM / EBUSY — file locked by antivirus or previous process
       reject(new Error(`Cannot write to ${dest}: ${err.message}`));
       return;
     }
@@ -909,7 +913,7 @@ function downloadFileDirect(url, dest) {
       if (response.statusCode === 302 || response.statusCode === 301) {
         file.close();
         try { fs.unlinkSync(dest); } catch (e) {}
-        downloadFileDirect(response.headers.location, dest).then(resolve).catch(reject);
+        downloadFileDirect(response.headers.location, dest, timeoutMs).then(resolve).catch(reject);
         return;
       }
       
@@ -945,15 +949,34 @@ function downloadFileDirect(url, dest) {
       reject(err);
     });
     
-    request.setTimeout(60000, () => {
+    request.setTimeout(timeoutMs, () => {
       request.destroy();
       reject(new Error('Timeout'));
     });
   });
 }
 
-function downloadFile(url, dest) {
-  return downloadFileDirect(url, dest);
+async function downloadFile(url, dest) {
+  const MAX_RETRIES = 3;
+  const TIMEOUTS = [120000, 180000, 300000];
+  let lastError;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      if (attempt > 0) {
+        const delaySec = attempt * 3;
+        sendLog({ type: 'info', message: `Повторная попытка скачивания (${attempt + 1}/${MAX_RETRIES}) через ${delaySec}с...` });
+        await new Promise(r => setTimeout(r, delaySec * 1000));
+        try { fs.unlinkSync(dest); } catch (e) {}
+      }
+      await downloadFileDirect(url, dest, TIMEOUTS[attempt] || 300000);
+      return;
+    } catch (err) {
+      lastError = err;
+      const retryable = ['ETIMEDOUT', 'ECONNRESET', 'EPIPE', 'Timeout', 'socket hang up'].some(s => (err.message || '').includes(s));
+      if (!retryable || attempt === MAX_RETRIES - 1) throw err;
+    }
+  }
+  throw lastError;
 }
 
 async function downloadAndExtractBinaries() {
@@ -1156,10 +1179,11 @@ async function downloadAndExtractBinaries() {
   } catch (error) {
     isDownloading = false;
     
-    // Categorize download errors
     let errorMsg = error.message;
-    if (error.message.includes('Timeout')) {
-      errorMsg = 'Таймаут при скачивании — проверьте интернет-соединение';
+    if (error.message.includes('ETIMEDOUT') || error.message.includes('Timeout')) {
+      errorMsg = 'Таймаут при скачивании — GitHub может быть недоступен. Попробуйте позже или включите VPN для первой загрузки';
+    } else if (error.message.includes('ECONNRESET') || error.message.includes('socket hang up')) {
+      errorMsg = 'Соединение сброшено — провайдер мог заблокировать GitHub. Попробуйте через VPN или мобильный интернет';
     } else if (error.message.includes('ENOTFOUND') || error.message.includes('getaddrinfo')) {
       errorMsg = 'Нет доступа к серверу — проверьте интернет-соединение';
     } else if (error.message.includes('EPERM') || error.message.includes('EACCES')) {
