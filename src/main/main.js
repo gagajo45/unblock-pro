@@ -1180,10 +1180,12 @@ async function downloadAndExtractBinaries() {
   }
 }
 
-// ============= QUIC BLOCKING (macOS) =============
-// YouTube prefers QUIC (UDP 443). SOCKS proxy only handles TCP, so QUIC bypasses
-// our tpws entirely. Blocking UDP 443 via pf forces browsers to use TCP/TLS
-// which goes through tpws and gets DPI-bypassed.
+// ============= UDP BLOCKING (macOS) =============
+// tpws is a TCP-only SOCKS proxy, so all UDP traffic bypasses it entirely.
+// We use pf (packet filter) to block specific UDP traffic, forcing TCP fallback:
+//  - UDP 443 (QUIC): forces YouTube/browsers to use TCP/TLS through tpws
+//  - UDP 19294-19344, 50000-50100 (Discord Voice): forces Discord to use
+//    TCP WebSocket for voice, which goes through tpws and gets DPI-bypassed
 
 let quicBlockEnabled = false;
 
@@ -1194,14 +1196,20 @@ async function enableQuicBlock() {
   try {
     let existingConf = '';
     try { existingConf = fs.readFileSync('/etc/pf.conf', 'utf8'); } catch (e) {}
-    const quicRule = 'block return out quick proto udp from any to any port 443';
-    if (existingConf.includes(quicRule)) {
+    const rules = [
+      'block return out quick proto udp from any to any port 443',
+      'block return out quick proto udp from any to any port 19294:19344',
+      'block return out quick proto udp from any to any port 50000:50100'
+    ];
+    const alreadyHasAll = rules.every(r => existingConf.includes(r));
+    if (alreadyHasAll) {
       quicBlockEnabled = true;
       return true;
     }
-    fs.writeFileSync(pfConfPath, existingConf.trimEnd() + '\n' + quicRule + '\n');
+    const newRules = rules.filter(r => !existingConf.includes(r));
+    fs.writeFileSync(pfConfPath, existingConf.trimEnd() + '\n' + newRules.join('\n') + '\n');
   } catch (e) {
-    sendLog({ type: 'warning', message: 'Не удалось создать конфиг для блокировки QUIC' });
+    sendLog({ type: 'warning', message: 'Не удалось создать конфиг для блокировки UDP' });
     return false;
   }
 
@@ -1211,11 +1219,11 @@ async function enableQuicBlock() {
       { name: 'UnblockPro' },
       (error) => {
         if (error) {
-          sendLog({ type: 'warning', message: 'QUIC блокировка не установлена — YouTube может загружаться медленнее' });
+          sendLog({ type: 'warning', message: 'UDP блокировка не установлена — Discord голос и YouTube могут не работать' });
           resolve(false);
         } else {
           quicBlockEnabled = true;
-          sendLog({ type: 'info', message: 'QUIC заблокирован — YouTube принудительно использует TCP' });
+          sendLog({ type: 'info', message: 'UDP заблокирован (QUIC + Discord Voice) — трафик идёт через TCP' });
           resolve(true);
         }
       }
@@ -1821,6 +1829,18 @@ async function startProxy() {
   
   sendLog({ type: 'info', message: `Начинаю перебор ${totalStrategies} стратегий...` });
 
+  // macOS: update hosts for Discord voice servers (finland*.discord.media)
+  if (process.platform === 'darwin') {
+    try {
+      const hostsResult = await updateHostsMacOS();
+      if (hostsResult.success && !hostsResult.alreadyExists) {
+        sendLog({ type: 'info', message: 'Hosts обновлён для Discord голоса' });
+      }
+    } catch (e) {
+      sendLog({ type: 'warning', message: 'Не удалось обновить hosts — голос Discord может не работать' });
+    }
+  }
+
   // Windows: update hosts and clear Discord cache at each connection start, then check admin
   if (process.platform === 'win32') {
     const tempDir = app.getPath('temp');
@@ -2334,6 +2354,7 @@ function generateFallbackHostsData() {
 }
 
 function getHostsPath() {
+  if (process.platform === 'darwin') return '/etc/hosts';
   return path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'drivers', 'etc', 'hosts');
 }
 function buildHostsUpdateScript(hostsPath, tempFile) {
@@ -2386,9 +2407,54 @@ async function prepareHostsUpdateForBatch(tempDir) {
     return { success: false };
   }
 }
+async function updateHostsMacOS() {
+  const hostsPath = '/etc/hosts';
+  try {
+    const current = fs.readFileSync(hostsPath, 'utf8');
+    if (current.includes(HOSTS_MARKER)) {
+      return { success: true, alreadyExists: true };
+    }
+  } catch (e) {}
+
+  let hostsData;
+  try {
+    hostsData = await new Promise((resolve) => {
+      const req = https.get(HOSTS_URL, { timeout: 10000 }, (res) => {
+        if (res.statusCode !== 200) { resolve(null); return; }
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      });
+      req.on('error', () => resolve(null));
+      req.on('timeout', () => { req.destroy(); resolve(null); });
+    });
+  } catch (e) {}
+  hostsData = hostsData || generateFallbackHostsData();
+
+  const tempFile = path.join(app.getPath('temp'), 'unblock-pro-hosts-add.txt');
+  const block = '\n\n' + HOSTS_MARKER + '\n' + hostsData;
+  fs.writeFileSync(tempFile, block, 'utf8');
+
+  return new Promise((resolve) => {
+    sudo.exec(
+      `/bin/cat "${tempFile}" >> "${hostsPath}" && rm -f "${tempFile}"`,
+      { name: 'UnblockPro' },
+      (error) => {
+        try { fs.unlinkSync(tempFile); } catch (e) {}
+        if (error) {
+          resolve({ success: false, error: error.message || 'Permission denied' });
+        } else {
+          sendLog({ type: 'success', message: 'Hosts обновлён для Discord/Telegram' });
+          resolve({ success: true });
+        }
+      }
+    );
+  });
+}
+
 ipcMain.handle('update-hosts-for-discord', async () => {
-  if (process.platform !== 'win32') {
-    return { success: false, error: 'Только Windows' };
+  if (process.platform === 'darwin') {
+    return await updateHostsMacOS();
   }
   const tempDir = app.getPath('temp');
   const tempFile = path.join(tempDir, 'unblock-pro-hosts-discord.txt');
