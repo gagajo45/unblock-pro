@@ -557,10 +557,19 @@ async function handleUpdateBtnClick() {
     updateBtn.textContent = 'Перезапуск...';
     updateText.textContent = 'Закрытие приложения...';
     await window.api.installUpdate();
+
+    // If we're still here after 8 seconds, the restart likely failed silently.
+    // Show retry button so the user isn't stuck on "Closing app..." forever.
+    setTimeout(() => {
+      if (!updateBtn) return;
+      updateBtn.disabled = false;
+      updateBtn.textContent = 'Повторить';
+      updateText.textContent = 'Перезапуск не удался. Попробуйте ещё раз или закройте вручную.';
+    }, 8000);
   } catch (e) {
     updateBtn.disabled = false;
     updateBtn.textContent = 'Перезапустить';
-    alert('Не удалось перезапустить: ' + (e.message || e));
+    updateText.textContent = 'Ошибка: ' + (e.message || 'не удалось перезапустить');
   }
 }
 

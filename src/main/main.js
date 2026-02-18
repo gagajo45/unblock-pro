@@ -196,6 +196,10 @@ function ensureHostLists() {
   fs.writeFileSync(path.join(hostListsDir, 'ipset-exclude.txt'), IPSET_EXCLUDE, 'utf8');
   fs.writeFileSync(path.join(hostListsDir, 'ipset-all.txt'), IPSET_ALL, 'utf8');
 
+  // Combined list for macOS tpws — all domains that need DPI bypass in a single file
+  const HOST_LIST_ALL = HOST_LIST_GENERAL + '\n' + HOST_LIST_GOOGLE + '\n' + HOST_LIST_DISCORD;
+  fs.writeFileSync(path.join(hostListsDir, 'list-all.txt'), HOST_LIST_ALL, 'utf8');
+
   return hostListsDir;
 }
 
@@ -744,51 +748,75 @@ function buildWin32Strategies(binDir, listsDir) {
 }
 
 // DPI bypass strategies — based on Flowseal/zapret-discord-youtube (22k+ stars)
-// macOS strategies are static (tpws SOCKS proxy), Windows strategies are built dynamically
-// because they need runtime paths to .bin pattern files and host list files
-const STRATEGIES_DARWIN = [
-  // === BASIC (work on most ISPs) ===
-  { name: 'split+disorder', args: ['--port', '1080', '--socks', '--split-pos=1', '--disorder', '--hostcase'] },
-  { name: 'split-midsld+disorder', args: ['--port', '1080', '--socks', '--split-pos=1,midsld', '--disorder', '--hostcase'] },
-  { name: 'split2+disorder', args: ['--port', '1080', '--socks', '--split-pos=2', '--disorder', '--hostcase'] },
-  // === TLS-AWARE ===
-  { name: 'tlsrec+split+disorder', args: ['--port', '1080', '--socks', '--tlsrec=sni', '--split-pos=1', '--disorder', '--hostcase'] },
-  { name: 'split-tls+disorder', args: ['--port', '1080', '--socks', '--split-pos=1,midsld', '--disorder=tls', '--hostcase'] },
-  // === HOST MANIPULATION ===
-  { name: 'methodeol+split', args: ['--port', '1080', '--socks', '--methodeol', '--split-pos=1', '--hostcase'] },
-  { name: 'hostdot+split+disorder', args: ['--port', '1080', '--socks', '--hostdot', '--split-pos=1,midsld', '--disorder'] },
-  { name: 'hostpad+split+disorder', args: ['--port', '1080', '--socks', '--hostpad=256', '--split-pos=1', '--disorder', '--hostcase'] },
-  // === OOB ===
-  { name: 'oob+split+disorder', args: ['--port', '1080', '--socks', '--oob', '--split-pos=1', '--disorder'] },
-  { name: 'oob+methodeol+split', args: ['--port', '1080', '--socks', '--oob', '--methodeol', '--split-pos=1', '--hostcase'] },
-  // === COMBINED (aggressive) ===
-  { name: 'combined-v1', args: ['--port', '1080', '--socks', '--split-pos=1,midsld', '--disorder', '--hostcase', '--methodeol'] },
-  { name: 'combined-v2', args: ['--port', '1080', '--socks', '--oob', '--methodeol', '--split-pos=1,midsld', '--disorder', '--hostcase', '--hostdot'] },
-  { name: 'combined-v3', args: ['--port', '1080', '--socks', '--tlsrec=sni', '--hostpad=256', '--split-pos=2', '--disorder', '--hostcase'] },
-  // === EXTENDED SPLIT POSITIONS ===
-  { name: 'split3+disorder', args: ['--port', '1080', '--socks', '--split-pos=3', '--disorder', '--hostcase'] },
-  { name: 'split-sniext+disorder', args: ['--port', '1080', '--socks', '--split-pos=1,sniext', '--disorder', '--hostcase'] },
-  // === HOST MANIPULATION VARIANTS ===
-  { name: 'hosttab+split+disorder', args: ['--port', '1080', '--socks', '--hosttab', '--split-pos=1', '--disorder', '--hostcase'] },
-  { name: 'hostspell+split', args: ['--port', '1080', '--socks', '--hostspell', '--split-pos=1', '--disorder'] },
-  // === LARGE HOSTPAD VARIANTS ===
-  { name: 'hostpad512+split+disorder', args: ['--port', '1080', '--socks', '--hostpad=512', '--split-pos=1', '--disorder', '--hostcase'] },
-  { name: 'hostpad1024+split', args: ['--port', '1080', '--socks', '--hostpad=1024', '--split-pos=1,midsld', '--hostcase'] },
-  // === TLS RECORD MANIPULATION ===
-  { name: 'tlsrec+disorder', args: ['--port', '1080', '--socks', '--tlsrec=sni', '--disorder', '--hostcase'] },
-  { name: 'tlsrec+oob+split', args: ['--port', '1080', '--socks', '--tlsrec=sni', '--oob', '--split-pos=1', '--hostcase'] },
-  // === AGGRESSIVE COMBINED ===
-  { name: 'combined-v4', args: ['--port', '1080', '--socks', '--oob', '--hostpad=256', '--split-pos=1,midsld', '--disorder', '--hostcase', '--methodeol'] },
-  { name: 'combined-v5', args: ['--port', '1080', '--socks', '--tlsrec=sni', '--methodeol', '--hostdot', '--split-pos=2', '--disorder', '--hostcase'] },
-  // === MINIMAL (last resort) ===
-  { name: 'split-only', args: ['--port', '1080', '--socks', '--split-pos=1'] },
-  { name: 'disorder-only', args: ['--port', '1080', '--socks', '--disorder'] }
-];
+// Both platforms now use dynamic strategy builders that reference runtime host list paths.
+// macOS: tpws SOCKS proxy with --hostlist for targeted DPI bypass
+// Windows: winws driver-level interception with host lists and pattern files
+function buildDarwinStrategies(listsDir) {
+  const la = path.join(listsDir, 'list-all.txt');
+  const le = path.join(listsDir, 'list-exclude.txt');
+
+  const BASE = ['--port', '1080', '--socks'];
+  const HL = [`--hostlist=${la}`, `--hostlist-exclude=${le}`];
+
+  return [
+    // === TIER 1: Split+Disorder with hostlist (proven for Discord, wide ISP compat) ===
+    { name: 'split+disorder', args: [...BASE, '--split-pos=1', '--disorder', '--hostcase', ...HL] },
+    { name: 'split-midsld+disorder', args: [...BASE, '--split-pos=1,midsld', '--disorder', '--hostcase', ...HL] },
+    { name: 'split2+disorder', args: [...BASE, '--split-pos=2', '--disorder', '--hostcase', ...HL] },
+
+    // === TIER 2: TLS record manipulation (effective against TSPU for YouTube) ===
+    { name: 'tlsrec+split+disorder', args: [...BASE, '--tlsrec=sni', '--split-pos=1', '--disorder', '--hostcase', ...HL] },
+    { name: 'tlsrec+split-midsld+disorder', args: [...BASE, '--tlsrec=sni', '--split-pos=1,midsld', '--disorder', '--hostcase', ...HL] },
+
+    // === TIER 3: OOB — out-of-band data injection bypasses many DPI ===
+    { name: 'oob+split+disorder', args: [...BASE, '--oob', '--split-pos=1', '--disorder', ...HL] },
+    { name: 'oob+split-midsld', args: [...BASE, '--oob', '--split-pos=1,midsld', '--disorder', ...HL] },
+    { name: 'oob+tlsrec+split', args: [...BASE, '--oob', '--tlsrec=sni', '--split-pos=1', '--hostcase', ...HL] },
+
+    // === TIER 4: Host header manipulation ===
+    { name: 'methodeol+split', args: [...BASE, '--methodeol', '--split-pos=1', '--hostcase', ...HL] },
+    { name: 'hostdot+split+disorder', args: [...BASE, '--hostdot', '--split-pos=1,midsld', '--disorder', ...HL] },
+    { name: 'hostpad+split+disorder', args: [...BASE, '--hostpad=256', '--split-pos=1', '--disorder', '--hostcase', ...HL] },
+
+    // === TIER 5: Combined aggressive strategies ===
+    { name: 'combined-v1', args: [...BASE, '--split-pos=1,midsld', '--disorder', '--hostcase', '--methodeol', ...HL] },
+    { name: 'combined-v2', args: [...BASE, '--oob', '--methodeol', '--split-pos=1,midsld', '--disorder', '--hostcase', '--hostdot', ...HL] },
+    { name: 'combined-v3', args: [...BASE, '--tlsrec=sni', '--hostpad=256', '--split-pos=2', '--disorder', '--hostcase', ...HL] },
+    { name: 'oob+methodeol+split', args: [...BASE, '--oob', '--methodeol', '--split-pos=1', '--hostcase', ...HL] },
+    { name: 'combined-v4', args: [...BASE, '--oob', '--hostpad=256', '--split-pos=1,midsld', '--disorder', '--hostcase', '--methodeol', ...HL] },
+    { name: 'combined-v5', args: [...BASE, '--tlsrec=sni', '--methodeol', '--hostdot', '--split-pos=2', '--disorder', '--hostcase', ...HL] },
+
+    // === TIER 6: Extended split positions ===
+    { name: 'split3+disorder', args: [...BASE, '--split-pos=3', '--disorder', '--hostcase', ...HL] },
+    { name: 'split-sniext+disorder', args: [...BASE, '--split-pos=1,sniext', '--disorder', '--hostcase', ...HL] },
+
+    // === TIER 7: Host header variants ===
+    { name: 'hosttab+split+disorder', args: [...BASE, '--hosttab', '--split-pos=1', '--disorder', '--hostcase', ...HL] },
+    { name: 'hostspell+split', args: [...BASE, '--hostspell', '--split-pos=1', '--disorder', ...HL] },
+    { name: 'hostpad512+split+disorder', args: [...BASE, '--hostpad=512', '--split-pos=1', '--disorder', '--hostcase', ...HL] },
+    { name: 'hostpad1024+split', args: [...BASE, '--hostpad=1024', '--split-pos=1,midsld', '--hostcase', ...HL] },
+
+    // === TIER 8: TLS record + OOB variants ===
+    { name: 'tlsrec+disorder', args: [...BASE, '--tlsrec=sni', '--disorder', '--hostcase', ...HL] },
+    { name: 'tlsrec+oob+split', args: [...BASE, '--tlsrec=sni', '--oob', '--split-pos=1', '--hostcase', ...HL] },
+
+    // === TIER 9: Minimal (last resort with hostlist) ===
+    { name: 'split-only', args: [...BASE, '--split-pos=1', ...HL] },
+    { name: 'disorder-only', args: [...BASE, '--disorder', ...HL] },
+
+    // === TIER 10: Fallback without hostlist (if tpws version lacks --hostlist support) ===
+    { name: 'split+disorder-nohl', args: [...BASE, '--split-pos=1', '--disorder', '--hostcase'] },
+    { name: 'split-midsld+disorder-nohl', args: [...BASE, '--split-pos=1,midsld', '--disorder', '--hostcase'] },
+    { name: 'tlsrec+split+disorder-nohl', args: [...BASE, '--tlsrec=sni', '--split-pos=1', '--disorder', '--hostcase'] },
+    { name: 'oob+split+disorder-nohl', args: [...BASE, '--oob', '--split-pos=1', '--disorder'] },
+  ];
+}
 
 // Get strategies for current platform (Windows strategies are built dynamically with paths)
 function getStrategiesForPlatform() {
   if (process.platform === 'darwin') {
-    return STRATEGIES_DARWIN;
+    const listsDir = ensureHostLists();
+    return buildDarwinStrategies(listsDir);
   } else if (process.platform === 'win32') {
     const binDir = getResourcePath();
     const listsDir = ensureHostLists();
@@ -1143,6 +1171,63 @@ async function downloadAndExtractBinaries() {
   }
 }
 
+// ============= QUIC BLOCKING (macOS) =============
+// YouTube prefers QUIC (UDP 443). SOCKS proxy only handles TCP, so QUIC bypasses
+// our tpws entirely. Blocking UDP 443 via pf forces browsers to use TCP/TLS
+// which goes through tpws and gets DPI-bypassed.
+
+let quicBlockEnabled = false;
+
+async function enableQuicBlock() {
+  if (process.platform !== 'darwin') return true;
+
+  const pfConfPath = path.join(app.getPath('userData'), 'pf-quic-block.conf');
+  try {
+    let existingConf = '';
+    try { existingConf = fs.readFileSync('/etc/pf.conf', 'utf8'); } catch (e) {}
+    const quicRule = 'block return out quick proto udp from any to any port 443';
+    if (existingConf.includes(quicRule)) {
+      quicBlockEnabled = true;
+      return true;
+    }
+    fs.writeFileSync(pfConfPath, existingConf.trimEnd() + '\n' + quicRule + '\n');
+  } catch (e) {
+    sendLog({ type: 'warning', message: 'Не удалось создать конфиг для блокировки QUIC' });
+    return false;
+  }
+
+  return new Promise((resolve) => {
+    sudo.exec(
+      `/sbin/pfctl -f "${pfConfPath}" 2>/dev/null; /sbin/pfctl -E 2>/dev/null; exit 0`,
+      { name: 'UnblockPro' },
+      (error) => {
+        if (error) {
+          sendLog({ type: 'warning', message: 'QUIC блокировка не установлена — YouTube может загружаться медленнее' });
+          resolve(false);
+        } else {
+          quicBlockEnabled = true;
+          sendLog({ type: 'info', message: 'QUIC заблокирован — YouTube принудительно использует TCP' });
+          resolve(true);
+        }
+      }
+    );
+  });
+}
+
+function disableQuicBlock() {
+  if (!quicBlockEnabled || process.platform !== 'darwin') return;
+  quicBlockEnabled = false;
+
+  try {
+    execSync('/sbin/pfctl -f /etc/pf.conf 2>/dev/null; exit 0', { stdio: 'pipe', shell: '/bin/sh' });
+  } catch (e) {
+    // Fallback: try via sudo-prompt (credentials may still be cached)
+    try {
+      sudo.exec('/sbin/pfctl -f /etc/pf.conf 2>/dev/null; exit 0', { name: 'UnblockPro' }, () => {});
+    } catch (e2) {}
+  }
+}
+
 // ============= SYSTEM PROXY (macOS) =============
 
 let proxyEnabledServices = [];
@@ -1212,36 +1297,38 @@ function testSingleConnection(port, timeoutSec, url) {
   });
 }
 
-async function testProxyConnection(port = 1080, timeoutSec = 10) {
-  // Discord app uses gateway + CDN + updater; strategy must work for at least one Discord host
-  const discordEndpoints = [
-    'https://discord.com/api/v10/gateway',
-    'https://cdn.discordapp.com/',
-    'https://dl.discordapp.net/apps/linux'
-  ];
-  const otherEndpoints = [
-    'https://www.youtube.com/',
-    'https://clients3.google.com/generate_204'
-  ];
-  const allEndpoints = [...discordEndpoints, ...otherEndpoints];
+async function testProxyConnection(port = 1080, timeoutSec = 8) {
+  // Must verify BOTH YouTube AND Discord — matching the Windows test behavior.
+  // YouTube is tested first because it's harder to unblock.
+  // Primary endpoints tested in parallel for speed.
+  const [ytOk, dcOk] = await Promise.all([
+    testSingleConnection(port, timeoutSec, 'https://www.youtube.com/'),
+    testSingleConnection(port, timeoutSec, 'https://discord.com/api/v10/gateway')
+  ]);
 
-  let discordOk = false;
-  let anyOk = false;
-  for (const url of allEndpoints) {
-    const works = await testSingleConnection(port, timeoutSec, url);
-    if (works) {
-      anyOk = true;
-      if (discordEndpoints.includes(url)) discordOk = true;
+  if (ytOk && dcOk) return true;
+
+  // Retry failed endpoints with alternate URLs
+  let ytPassed = ytOk;
+  let dcPassed = dcOk;
+
+  if (!ytPassed) {
+    ytPassed = await testSingleConnection(port, timeoutSec, 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg');
+    if (!ytPassed) {
+      sendLog({ type: 'warning', message: 'YouTube не прошёл через прокси — стратегия не подходит' });
+      return false;
     }
   }
-  // Require at least one Discord endpoint so app/updater don't hang
-  if (discordOk && anyOk) return true;
-  // Retry first Discord endpoint once (flaky network)
-  if (anyOk && !discordOk) {
-    const retry = await testSingleConnection(port, timeoutSec, discordEndpoints[0]);
-    if (retry) return true;
+
+  if (!dcPassed) {
+    dcPassed = await testSingleConnection(port, timeoutSec, 'https://cdn.discordapp.com/');
+    if (!dcPassed) {
+      sendLog({ type: 'warning', message: 'Discord не прошёл через прокси — стратегия не подходит' });
+      return false;
+    }
   }
-  return false;
+
+  return true;
 }
 
 // ============= DIRECT CONNECTION TEST (Windows) =============
@@ -1691,6 +1778,8 @@ async function startProxy() {
       sendStatus();
       return { success: false, error: lastError };
     }
+    // Block QUIC (UDP 443) so YouTube uses TCP which goes through tpws
+    await enableQuicBlock();
   }
 
   sendStatus({ searching: true });
@@ -1986,6 +2075,9 @@ async function startProxy() {
 function stopProxy() {
   // Disable system proxy FIRST (before killing tpws)
   disableSystemProxy();
+  
+  // Restore QUIC (remove pf block)
+  disableQuicBlock();
   
   // Stop winws monitor if running
   stopWinwsMonitor();
@@ -2345,23 +2437,41 @@ ipcMain.handle('get-settings', () => {
   return loadSettings();
 });
 
-ipcMain.handle('install-update', () => {
+ipcMain.handle('install-update', async () => {
   if (isDev) {
-    return Promise.resolve({ ok: false, error: 'В режиме разработки обновление недоступно' });
+    return { ok: false, error: 'В режиме разработки обновление недоступно' };
   }
+
   if (mainWindow && mainWindow.webContents) {
     mainWindow.webContents.send('update-status', { status: 'restarting' });
   }
-  setTimeout(() => {
+
+  // Clean up proxy BEFORE triggering quit — prevents before-quit from blocking
+  // with heavy execSync calls (taskkill, pkill, networksetup).
+  try { stopProxy(); } catch (e) {}
+  app.isQuitting = true;
+
+  await new Promise(resolve => setTimeout(resolve, 300));
+
+  try {
+    // isSilent=true: don't show installer window on Windows (avoids second UAC)
+    // isForceRunAfter=true: restart the app after installing
+    autoUpdater.quitAndInstall(true, true);
+  } catch (e) {
+    console.error('quitAndInstall failed:', e);
     try {
-      autoUpdater.quitAndInstall(false, true);
-    } catch (e) {
       if (mainWindow && mainWindow.webContents) {
         mainWindow.webContents.send('update-status', { status: 'error' });
       }
-    }
-  }, 400);
-  return Promise.resolve({ ok: true });
+    } catch (e2) {}
+    // Fallback: normal quit — autoInstallOnAppQuit=true will handle installation
+    app.quit();
+  }
+
+  // Safety net: force exit if the app is still alive after 5 seconds
+  setTimeout(() => { app.exit(0); }, 5000);
+
+  return { ok: true };
 });
 
 ipcMain.handle('check-for-updates', () => {
@@ -2464,18 +2574,22 @@ if (!gotTheLock) {
   });
 
   app.on('before-quit', () => {
+    if (app.isQuitting) {
+      // Already cleaned up by install-update handler — skip heavy execSync calls
+      // to avoid blocking the quit/update sequence.
+      return;
+    }
     app.isQuitting = true;
     stopProxy();
-    // Synchronous force-kill as a safety net — ensures winws.exe is dead before process exits,
-    // even if it was started elevated. Without this, internet breaks after app close.
     if (process.platform === 'win32') {
-      try { execSync('taskkill /F /IM winws.exe', { stdio: 'pipe', timeout: 5000 }); } catch (e) {}
+      try { execSync('taskkill /F /IM winws.exe', { stdio: 'pipe', timeout: 3000 }); } catch (e) {}
     }
   });
 
   // Ensure proxy cleanup on any exit scenario
   function emergencyCleanup() {
     try { disableSystemProxy(); } catch (e) {}
+    try { disableQuicBlock(); } catch (e) {}
     try { stopWinwsMonitor(); } catch (e) {}
     try { if (proxyProcess) proxyProcess.kill(); } catch (e) {}
     if (process.platform === 'darwin') {
