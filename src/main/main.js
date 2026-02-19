@@ -757,6 +757,99 @@ function buildWin32Strategies(binDir, listsDir) {
       '--filter-tcp=80', '--dpi-desync=multisplit', '--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1', '--new',
       ...rule6_ipsetUdpFallback(6),
       ...rule8_gameUdp(12, 'n2')
+    ]},
+
+    // ========== Additional strategies for ISPs with updated DPI (2025-2026) ==========
+
+    // syndata-only — bypasses newest TSPU for YouTube without needing TLS patterns
+    { name: 'syndata-only', args: [
+      ...WF_FULL,
+      ...rule1_udpQuic(6),
+      ...rule2_udpDiscordVoice(),
+      '--filter-l3=ipv4', '--filter-tcp=443,2053,2083,2087,2096,8443',
+      `--hostlist-exclude=${l('list-exclude.txt')}`, `--ipset-exclude=${l('ipset-exclude.txt')}`,
+      '--dpi-desync=syndata,multidisorder', '--new',
+      '--filter-tcp=80', `--hostlist=${l('list-general.txt')}`,
+      `--hostlist-exclude=${l('list-exclude.txt')}`, `--ipset-exclude=${l('ipset-exclude.txt')}`,
+      '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--new',
+      ...rule6_ipsetUdpFallback(6),
+      ...rule8_gameUdp(14, 'n3')
+    ]},
+
+    // fake,multidisorder + TLS mod (proven for MGTS, Rostelecom 2025+)
+    { name: 'fake-multidisorder-tlsmod', args: [
+      ...WF_FULL,
+      ...rule1_udpQuic(11),
+      ...rule2_udpDiscordVoice(),
+      ...rule3_discordMedia('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11',
+        '--dpi-desync-fooling=ts,badseq', '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com']),
+      ...rule4_google('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11',
+        '--dpi-desync-fooling=ts,badseq', '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com']),
+      ...rule5_generalTcp('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11',
+        '--dpi-desync-fooling=ts,badseq', '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=ya.ru', `--dpi-desync-fake-http=${tlsM}`]),
+      ...rule6_ipsetUdpFallback(11),
+      ...rule7_ipsetTcpFallback('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11',
+        '--dpi-desync-fooling=ts,badseq', '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=ya.ru', `--dpi-desync-fake-http=${tlsM}`]),
+      ...rule8_gameUdp(11, 'n2')
+    ]},
+
+    // multisplit with higher seqovl values (works on providers that block 681)
+    { name: 'multisplit-900', args: std8('multisplit',
+      ['--dpi-desync-split-seqovl=900', '--dpi-desync-split-pos=1', `--dpi-desync-split-seqovl-pattern=${tlsG}`],
+      ['--dpi-desync-split-seqovl=900', '--dpi-desync-split-pos=1', `--dpi-desync-split-seqovl-pattern=${tlsG}`],
+      ['--dpi-desync-split-seqovl=900', '--dpi-desync-split-pos=1', `--dpi-desync-split-seqovl-pattern=${tls4}`],
+      ['--dpi-desync-split-seqovl=900', '--dpi-desync-split-pos=1', `--dpi-desync-split-seqovl-pattern=${tls4}`],
+      { cutoff: 'n2' })
+    },
+
+    // fake+multisplit with ts fooling (effective for dom.ru, beeline 2025+)
+    { name: 'fake+multisplit-ts', args: std8('fake,multisplit',
+      ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1', '--dpi-desync-fooling=ts', '--dpi-desync-repeats=6', `--dpi-desync-fake-tls=${tlsG}`, `--dpi-desync-split-seqovl-pattern=${tlsG}`],
+      ['--dpi-desync-split-seqovl=681', '--dpi-desync-split-pos=1', '--dpi-desync-fooling=ts', '--dpi-desync-repeats=6', `--dpi-desync-fake-tls=${tlsG}`, `--dpi-desync-split-seqovl-pattern=${tlsG}`],
+      ['--dpi-desync-split-seqovl=568', '--dpi-desync-split-pos=1', '--dpi-desync-fooling=ts', '--dpi-desync-repeats=6', `--dpi-desync-fake-tls=${tls4}`, `--dpi-desync-split-seqovl-pattern=${tls4}`],
+      ['--dpi-desync-split-seqovl=568', '--dpi-desync-split-pos=1', '--dpi-desync-fooling=ts', '--dpi-desync-repeats=6', `--dpi-desync-fake-tls=${tls4}`, `--dpi-desync-split-seqovl-pattern=${tls4}`],
+      { cutoff: 'n3' })
+    },
+
+    // COMBO: syndata YouTube + hostfakesplit Discord (for providers where multisplit stopped working)
+    { name: 'combo:syndata+hostfakesplit', args: [
+      ...WF_FULL,
+      ...rule1_udpQuic(6),
+      ...rule2_udpDiscordVoice(),
+      ...rule3_discordMedia('fake,hostfakesplit', [
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com',
+        '--dpi-desync-hostfakesplit-mod=host=www.google.com,altorder=1', '--dpi-desync-fooling=ts']),
+      ...discordTcp443Rule('fake,hostfakesplit', [
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com',
+        '--dpi-desync-hostfakesplit-mod=host=www.google.com,altorder=1', '--dpi-desync-fooling=ts']),
+      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
+      '--filter-tcp=80', '--dpi-desync=fake,hostfakesplit', '--dpi-desync-fooling=ts',
+      '--dpi-desync-hostfakesplit-mod=host=ya.ru,altorder=1', '--new',
+      ...rule6_ipsetUdpFallback(6),
+      ...rule8_gameUdp(12, 'n2')
+    ]},
+
+    // COMBO: syndata YouTube + fake TLS AUTO Discord
+    { name: 'combo:syndata+faketls', args: [
+      ...WF_FULL,
+      ...rule1_udpQuic(11),
+      ...rule2_udpDiscordVoice(),
+      ...rule3_discordMedia('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-fake-tls=0x00000000', '--dpi-desync-fake-tls=!',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com']),
+      ...discordTcp443Rule('fake,multidisorder', [
+        '--dpi-desync-split-pos=1,midsld', '--dpi-desync-repeats=11', '--dpi-desync-fooling=badseq',
+        '--dpi-desync-fake-tls=0x00000000', '--dpi-desync-fake-tls=!',
+        '--dpi-desync-fake-tls-mod=rnd,dupsid,sni=www.google.com']),
+      '--filter-l3=ipv4', '--filter-tcp=443', '--dpi-desync=syndata,multidisorder', '--new',
+      '--filter-tcp=80', '--dpi-desync=fake', '--dpi-desync-repeats=6', '--dpi-desync-fooling=badseq', '--new',
+      ...rule6_ipsetUdpFallback(11),
+      ...rule8_gameUdp(11, 'n2')
     ]}
   ];
 }
@@ -772,57 +865,109 @@ function buildDarwinStrategies(listsDir) {
   const BASE = ['--port', '1080', '--socks'];
   const HL = [`--hostlist=${la}`, `--hostlist-exclude=${le}`];
 
+  const lg = path.join(listsDir, 'list-general.txt');
+  const ld = path.join(listsDir, 'list-discord.txt');
+  const HLG = [`--hostlist=${lg}`, `--hostlist-exclude=${le}`];
+  const HLD = [`--hostlist=${ld}`];
+
   return [
-    // === TIER 1: Split+Disorder with hostlist (proven for Discord, wide ISP compat) ===
+    // === TIER 1: Multi-profile TLS+HTTP (best for Discord+YouTube combo) ===
+    { name: 'multi:disorder+tlsrec', args: [...BASE, ...HL,
+      '--filter-l7=tls', '--split-pos=1,midsld', '--disorder', '--tlsrec=sni',
+      '--new', ...HL, '--filter-l7=http', '--hostcase', '--methodeol', '--split-pos=1', '--disorder'] },
+    { name: 'multi:oob-tls+hostcase-http', args: [...BASE, ...HL,
+      '--filter-l7=tls', '--split-pos=1,midsld', '--oob', '--disorder',
+      '--new', ...HL, '--filter-l7=http', '--hostcase', '--hostdot', '--split-pos=1', '--disorder'] },
+    { name: 'multi:split-sniext+methodeol', args: [...BASE, ...HL,
+      '--filter-l7=tls', '--split-pos=1,sniext', '--disorder', '--tlsrec=sni',
+      '--new', ...HL, '--filter-l7=http', '--methodeol', '--hostcase', '--split-pos=2', '--disorder'] },
+
+    // === TIER 2: Split+Disorder basics (proven, wide ISP compat) ===
     { name: 'split+disorder', args: [...BASE, '--split-pos=1', '--disorder', '--hostcase', ...HL] },
     { name: 'split-midsld+disorder', args: [...BASE, '--split-pos=1,midsld', '--disorder', '--hostcase', ...HL] },
     { name: 'split2+disorder', args: [...BASE, '--split-pos=2', '--disorder', '--hostcase', ...HL] },
+    { name: 'split-host+disorder', args: [...BASE, '--split-pos=host', '--disorder', '--hostcase', ...HL] },
+    { name: 'split-endhost+disorder', args: [...BASE, '--split-pos=endhost', '--disorder', '--hostcase', ...HL] },
 
-    // === TIER 2: TLS record manipulation (effective against TSPU for YouTube) ===
+    // === TIER 3: TLS record manipulation (effective against TSPU for YouTube) ===
     { name: 'tlsrec+split+disorder', args: [...BASE, '--tlsrec=sni', '--split-pos=1', '--disorder', '--hostcase', ...HL] },
     { name: 'tlsrec+split-midsld+disorder', args: [...BASE, '--tlsrec=sni', '--split-pos=1,midsld', '--disorder', '--hostcase', ...HL] },
+    { name: 'tlsrec-sniext+disorder', args: [...BASE, '--tlsrec=sniext', '--split-pos=1', '--disorder', '--hostcase', ...HL] },
 
-    // === TIER 3: OOB — out-of-band data injection bypasses many DPI ===
+    // === TIER 4: OOB — out-of-band data injection ===
     { name: 'oob+split+disorder', args: [...BASE, '--oob', '--split-pos=1', '--disorder', ...HL] },
     { name: 'oob+split-midsld', args: [...BASE, '--oob', '--split-pos=1,midsld', '--disorder', ...HL] },
     { name: 'oob+tlsrec+split', args: [...BASE, '--oob', '--tlsrec=sni', '--split-pos=1', '--hostcase', ...HL] },
+    { name: 'oob-tls+split+disorder', args: [...BASE, '--oob=tls', '--split-pos=1,midsld', '--disorder', '--hostcase', ...HL] },
+    { name: 'oob-0x01+split+disorder', args: [...BASE, '--oob', '--oob-data=0x01', '--split-pos=1', '--disorder', ...HL] },
 
-    // === TIER 4: Host header manipulation ===
+    // === TIER 5: Multi-profile with Discord-specific rules ===
+    { name: 'multi:discord-split+general-disorder', args: [...BASE,
+      ...HLD, '--filter-l7=tls', '--split-pos=1,midsld', '--disorder', '--tlsrec=sni',
+      '--new', ...HLD, '--filter-l7=http', '--hostcase', '--split-pos=1', '--disorder',
+      '--new', ...HLG, '--filter-l7=tls', '--split-pos=1', '--disorder',
+      '--new', ...HLG, '--filter-l7=http', '--hostcase', '--methodeol', '--split-pos=1'] },
+    { name: 'multi:discord-oob+general-split', args: [...BASE,
+      ...HLD, '--split-pos=1,midsld', '--oob', '--disorder',
+      '--new', ...HLG, '--split-pos=1', '--disorder', '--hostcase'] },
+
+    // === TIER 6: Host header manipulation ===
     { name: 'methodeol+split', args: [...BASE, '--methodeol', '--split-pos=1', '--hostcase', ...HL] },
     { name: 'hostdot+split+disorder', args: [...BASE, '--hostdot', '--split-pos=1,midsld', '--disorder', ...HL] },
     { name: 'hostpad+split+disorder', args: [...BASE, '--hostpad=256', '--split-pos=1', '--disorder', '--hostcase', ...HL] },
+    { name: 'domcase+split+disorder', args: [...BASE, '--domcase', '--split-pos=1,midsld', '--disorder', ...HL] },
 
-    // === TIER 5: Combined aggressive strategies ===
+    // === TIER 7: Combined aggressive strategies ===
     { name: 'combined-v1', args: [...BASE, '--split-pos=1,midsld', '--disorder', '--hostcase', '--methodeol', ...HL] },
     { name: 'combined-v2', args: [...BASE, '--oob', '--methodeol', '--split-pos=1,midsld', '--disorder', '--hostcase', '--hostdot', ...HL] },
     { name: 'combined-v3', args: [...BASE, '--tlsrec=sni', '--hostpad=256', '--split-pos=2', '--disorder', '--hostcase', ...HL] },
     { name: 'oob+methodeol+split', args: [...BASE, '--oob', '--methodeol', '--split-pos=1', '--hostcase', ...HL] },
     { name: 'combined-v4', args: [...BASE, '--oob', '--hostpad=256', '--split-pos=1,midsld', '--disorder', '--hostcase', '--methodeol', ...HL] },
     { name: 'combined-v5', args: [...BASE, '--tlsrec=sni', '--methodeol', '--hostdot', '--split-pos=2', '--disorder', '--hostcase', ...HL] },
+    { name: 'combined-v6', args: [...BASE, '--oob=tls', '--tlsrec=sni', '--split-pos=1,midsld', '--disorder', '--hostcase', ...HL] },
+    { name: 'combined-v7', args: [...BASE, '--domcase', '--oob', '--split-pos=host', '--disorder', ...HL] },
 
-    // === TIER 6: Extended split positions ===
+    // === TIER 8: Multi-profile split-any-protocol (for edge cases) ===
+    { name: 'multi:splitany+disorder', args: [...BASE, ...HL,
+      '--split-pos=1,midsld', '--split-any-protocol', '--disorder',
+      '--new', ...HL, '--filter-l7=http', '--hostcase', '--methodeol'] },
+    { name: 'split-any+oob+disorder', args: [...BASE, '--split-pos=1', '--split-any-protocol', '--oob', '--disorder', ...HL] },
+
+    // === TIER 9: Extended split positions ===
     { name: 'split3+disorder', args: [...BASE, '--split-pos=3', '--disorder', '--hostcase', ...HL] },
     { name: 'split-sniext+disorder', args: [...BASE, '--split-pos=1,sniext', '--disorder', '--hostcase', ...HL] },
+    { name: 'split-sld+disorder', args: [...BASE, '--split-pos=sld', '--disorder', '--hostcase', ...HL] },
+    { name: 'split-endsld+disorder', args: [...BASE, '--split-pos=endsld', '--disorder', '--hostcase', ...HL] },
 
-    // === TIER 7: Host header variants ===
+    // === TIER 10: Host header variants ===
     { name: 'hosttab+split+disorder', args: [...BASE, '--hosttab', '--split-pos=1', '--disorder', '--hostcase', ...HL] },
-    { name: 'hostspell+split', args: [...BASE, '--hostspell', '--split-pos=1', '--disorder', ...HL] },
+    { name: 'hostnospace+split+disorder', args: [...BASE, '--hostnospace', '--split-pos=1', '--disorder', '--hostcase', ...HL] },
     { name: 'hostpad512+split+disorder', args: [...BASE, '--hostpad=512', '--split-pos=1', '--disorder', '--hostcase', ...HL] },
     { name: 'hostpad1024+split', args: [...BASE, '--hostpad=1024', '--split-pos=1,midsld', '--hostcase', ...HL] },
+    { name: 'unixeol+split+disorder', args: [...BASE, '--unixeol', '--split-pos=1', '--disorder', '--hostcase', ...HL] },
 
-    // === TIER 8: TLS record + OOB variants ===
+    // === TIER 11: TLS record + OOB variants ===
     { name: 'tlsrec+disorder', args: [...BASE, '--tlsrec=sni', '--disorder', '--hostcase', ...HL] },
     { name: 'tlsrec+oob+split', args: [...BASE, '--tlsrec=sni', '--oob', '--split-pos=1', '--hostcase', ...HL] },
+    { name: 'tlsrec+oob+disorder', args: [...BASE, '--tlsrec=sni', '--oob', '--disorder', '--hostcase', ...HL] },
 
-    // === TIER 9: Minimal (last resort with hostlist) ===
+    // === TIER 12: Multi-profile tamper-cutoff (reduce false positives) ===
+    { name: 'multi:cutoff-tls+cutoff-http', args: [...BASE, ...HL,
+      '--filter-l7=tls', '--split-pos=1,midsld', '--disorder', '--tlsrec=sni', '--tamper-cutoff=n5',
+      '--new', ...HL, '--filter-l7=http', '--hostcase', '--methodeol', '--split-pos=1', '--tamper-cutoff=n3'] },
+
+    // === TIER 13: Minimal (last resort with hostlist) ===
     { name: 'split-only', args: [...BASE, '--split-pos=1', ...HL] },
     { name: 'disorder-only', args: [...BASE, '--disorder', ...HL] },
 
-    // === TIER 10: Fallback without hostlist (if tpws version lacks --hostlist support) ===
+    // === TIER 14: Fallback without hostlist ===
     { name: 'split+disorder-nohl', args: [...BASE, '--split-pos=1', '--disorder', '--hostcase'] },
     { name: 'split-midsld+disorder-nohl', args: [...BASE, '--split-pos=1,midsld', '--disorder', '--hostcase'] },
     { name: 'tlsrec+split+disorder-nohl', args: [...BASE, '--tlsrec=sni', '--split-pos=1', '--disorder', '--hostcase'] },
     { name: 'oob+split+disorder-nohl', args: [...BASE, '--oob', '--split-pos=1', '--disorder'] },
+    { name: 'multi:disorder+tlsrec-nohl', args: [...BASE,
+      '--filter-l7=tls', '--split-pos=1,midsld', '--disorder', '--tlsrec=sni',
+      '--new', '--filter-l7=http', '--hostcase', '--methodeol', '--split-pos=1', '--disorder'] },
   ];
 }
 
