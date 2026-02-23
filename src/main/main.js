@@ -3,8 +3,12 @@ const path = require('path');
 const { spawn, exec, execSync } = require('child_process');
 const fs = require('fs');
 const https = require('https');
+const dns = require('dns');
 const tls = require('tls');
 const sudo = require('sudo-prompt');
+
+dns.setDefaultResultOrder('ipv4first');
+const ipv4Lookup = (host, opts, cb) => dns.lookup(host, { family: 4 }, cb);
 const { autoUpdater } = require('electron-updater');
 
 let mainWindow;
@@ -50,34 +54,42 @@ function applyAutoStart(enabled) {
   });
 }
 
-// Dynamically fetch the latest zapret release URL from GitHub API
-function getLatestZapretUrl() {
-  return new Promise((resolve, reject) => {
-    const req = https.get('https://api.github.com/repos/bol-van/zapret/releases/latest', {
-      headers: { 'User-Agent': 'UnblockPro' },
-      timeout: 30000
-    }, (res) => {
-      if (res.statusCode === 302 || res.statusCode === 301) {
-        const rReq = https.get(res.headers.location, { headers: { 'User-Agent': 'UnblockPro' }, timeout: 30000 }, (r) => {
-          let data = '';
-          r.on('data', chunk => data += chunk);
-          r.on('end', () => {
-            try { resolve(findZipAsset(JSON.parse(data))); } catch (e) { reject(e); }
+const ZAPRET_FALLBACK_URL = 'https://github.com/bol-van/zapret/releases/download/v70.6/zapret-v70.6.zip';
+
+// Dynamically fetch the latest zapret release URL from GitHub API, fallback to known version
+async function getLatestZapretUrl() {
+  try {
+    return await new Promise((resolve, reject) => {
+      const req = https.get('https://api.github.com/repos/bol-van/zapret/releases/latest', {
+        family: 4, lookup: ipv4Lookup,
+        headers: { 'User-Agent': 'UnblockPro' },
+        timeout: 30000
+      }, (res) => {
+        if (res.statusCode === 302 || res.statusCode === 301) {
+          const rReq = https.get(res.headers.location, { family: 4, lookup: ipv4Lookup, headers: { 'User-Agent': 'UnblockPro' }, timeout: 30000 }, (r) => {
+            let data = '';
+            r.on('data', chunk => data += chunk);
+            r.on('end', () => {
+              try { resolve(findZipAsset(JSON.parse(data))); } catch (e) { reject(e); }
+            });
           });
+          rReq.on('error', reject);
+          rReq.on('timeout', () => { rReq.destroy(); reject(new Error('Timeout')); });
+          return;
+        }
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          try { resolve(findZipAsset(JSON.parse(data))); } catch (e) { reject(e); }
         });
-        rReq.on('error', reject);
-        rReq.on('timeout', () => { rReq.destroy(); reject(new Error('Timeout')); });
-        return;
-      }
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try { resolve(findZipAsset(JSON.parse(data))); } catch (e) { reject(e); }
       });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
     });
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
-  });
+  } catch (e) {
+    sendLog({ type: 'warn', message: `GitHub API недоступен (${e.message}), используем запасную ссылку` });
+    return ZAPRET_FALLBACK_URL;
+  }
 }
 
 function findZipAsset(release) {
@@ -1054,7 +1066,7 @@ function downloadFileDirect(url, dest, timeoutMs = 120000) {
       reject(err);
     });
     
-    const request = https.get(url, (response) => {
+    const request = https.get(url, { family: 4, lookup: ipv4Lookup }, (response) => {
       if (response.statusCode === 302 || response.statusCode === 301) {
         file.close();
         try { fs.unlinkSync(dest); } catch (e) {}
@@ -1526,6 +1538,7 @@ function testSingleDirectConnection(url, timeoutSec = 10) {
       const req = https.get({
         hostname: urlObj.hostname,
         path: urlObj.pathname + urlObj.search,
+        family: 4, lookup: ipv4Lookup,
         timeout: timeoutSec * 1000,
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36' }
       }, (res) => {
@@ -2555,7 +2568,7 @@ async function prepareHostsUpdateForBatch(tempDir) {
 
   // Try downloading latest from GitHub
   const downloaded = await new Promise((resolve) => {
-    const req = https.get(HOSTS_URL, { timeout: 10000 }, (res) => {
+    const req = https.get(HOSTS_URL, { family: 4, lookup: ipv4Lookup, timeout: 10000 }, (res) => {
       if (res.statusCode !== 200) { resolve(null); return; }
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
@@ -2588,7 +2601,7 @@ async function updateHostsMacOS() {
   let hostsData;
   try {
     hostsData = await new Promise((resolve) => {
-      const req = https.get(HOSTS_URL, { timeout: 10000 }, (res) => {
+      const req = https.get(HOSTS_URL, { family: 4, lookup: ipv4Lookup, timeout: 10000 }, (res) => {
         if (res.statusCode !== 200) { resolve(null); return; }
         const chunks = [];
         res.on('data', (c) => chunks.push(c));
@@ -2630,7 +2643,7 @@ ipcMain.handle('update-hosts-for-discord', async () => {
   const hostsPath = getHostsPath();
   const psScriptPath = path.join(tempDir, 'unblock-pro-update-hosts.ps1');
   return new Promise((resolve) => {
-    const req = https.get(HOSTS_URL, { timeout: 15000 }, (res) => {
+    const req = https.get(HOSTS_URL, { family: 4, lookup: ipv4Lookup, timeout: 15000 }, (res) => {
       if (res.statusCode !== 200) {
         resolve({ success: false, error: `HTTP ${res.statusCode}` });
         return;
