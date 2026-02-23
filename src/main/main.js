@@ -1104,6 +1104,27 @@ function buildDarwinStrategies(listsDir) {
   ];
 }
 
+// Proven strategies ordered by speed (tested Feb 2026 on TSPU SNI-filtering DPI).
+// Auto-select tries them in order, so fastest/most reliable go first.
+const WIN32_PRIORITY_ORDER = [
+  'multisplit-seqovl-2', 'disorder-midsld', 'combo:syndata+md5sig',
+  'combo:syndata+hostfake-md5sig', 'ALT10', 'syndata-only',
+  'combo:syndata+badseq', 'combo:syndata+multisplit', 'ALT5',
+];
+
+function reorderStrategies(strategies) {
+  const byName = new Map(strategies.map(s => [s.name, s]));
+  const ordered = [];
+  for (const name of WIN32_PRIORITY_ORDER) {
+    const s = byName.get(name);
+    if (s) { ordered.push(s); byName.delete(name); }
+  }
+  for (const s of strategies) {
+    if (byName.has(s.name)) ordered.push(s);
+  }
+  return ordered;
+}
+
 // Get strategies for current platform (Windows strategies are built dynamically with paths)
 function getStrategiesForPlatform() {
   if (process.platform === 'darwin') {
@@ -1113,7 +1134,7 @@ function getStrategiesForPlatform() {
     const binDir = getResourcePath();
     const listsDir = ensureHostLists();
     ensureBinPatternFiles(binDir);
-    return buildWin32Strategies(binDir, listsDir);
+    return reorderStrategies(buildWin32Strategies(binDir, listsDir));
   }
   return [];
 }
