@@ -156,6 +156,10 @@ const HOST_LIST_GENERAL = [
   'discord-activities.com', 'discordactivities.com', 'discordapp.com', 'discordapp.net',
   'discordcdn.com', 'discordmerch.com', 'discordpartygames.com', 'discordsays.com',
   'discordsez.com', 'discordstatus.com',
+  'gateway.discord.gg', 'cdn.discordapp.com', 'media.discordapp.net',
+  'images-ext-1.discordapp.net', 'images-ext-2.discordapp.net',
+  'dl.discordapp.net', 'updates.discord.com', 'router.discordapp.net',
+  'sentry.io', 'sentry-cdn.com',
   'frankerfacez.com', 'ffzap.com', 'betterttv.net',
   '7tv.app', '7tv.io', 'localizeapi.com'
 ].join('\n');
@@ -1429,6 +1433,7 @@ function disableQuicBlock() {
 // ============= SYSTEM PROXY (macOS) =============
 
 let proxyEnabledServices = [];
+let originalDnsSettings = {};
 
 function getActiveNetworkServices() {
   if (process.platform !== 'darwin') return [];
@@ -1470,7 +1475,6 @@ function enableSystemProxy(port = 1080) {
 
 function disableSystemProxy() {
   if (process.platform !== 'darwin') return;
-  // Disable on all services we touched + currently active ones (covers network switch)
   const services = [...new Set([...proxyEnabledServices, ...getActiveNetworkServices()])];
   
   for (const service of services) {
@@ -1479,6 +1483,41 @@ function disableSystemProxy() {
     } catch (e) {}
   }
   proxyEnabledServices = [];
+}
+
+function setCleanDns(services) {
+  if (process.platform !== 'darwin') return;
+  originalDnsSettings = {};
+  for (const service of services) {
+    try {
+      const info = execSync(`networksetup -getdnsservers "${service}"`, { encoding: 'utf8', stdio: 'pipe' }).trim();
+      originalDnsSettings[service] = info;
+      execSync(`networksetup -setdnsservers "${service}" 1.1.1.1 8.8.8.8 1.0.0.1 8.8.4.4`, { stdio: 'pipe' });
+    } catch (e) {}
+  }
+}
+
+function restoreDns() {
+  if (process.platform !== 'darwin') return;
+  const services = [...new Set([...Object.keys(originalDnsSettings), ...getActiveNetworkServices()])];
+  for (const service of services) {
+    try {
+      const orig = originalDnsSettings[service];
+      if (orig && !orig.includes("aren't any") && !orig.includes('Error')) {
+        const servers = orig.split('\n').map(s => s.trim()).filter(Boolean).join(' ');
+        execSync(`networksetup -setdnsservers "${service}" ${servers}`, { stdio: 'pipe' });
+      } else {
+        execSync(`networksetup -setdnsservers "${service}" Empty`, { stdio: 'pipe' });
+      }
+    } catch (e) {}
+  }
+  originalDnsSettings = {};
+}
+
+function flushDnsCache() {
+  if (process.platform !== 'darwin') return;
+  try { execSync('dscacheutil -flushcache', { stdio: 'pipe' }); } catch (e) {}
+  try { execSync('killall -HUP mDNSResponder 2>/dev/null; exit 0', { stdio: 'pipe', shell: '/bin/sh' }); } catch (e) {}
 }
 
 function testSingleConnection(port, timeoutSec, url) {
@@ -1496,19 +1535,17 @@ function testSingleConnection(port, timeoutSec, url) {
 }
 
 async function testProxyConnection(port = 1080, timeoutSec = 8) {
-  // Must verify BOTH YouTube AND Discord — matching the Windows test behavior.
-  // YouTube is tested first because it's harder to unblock.
-  // Primary endpoints tested in parallel for speed.
-  const [ytOk, dcOk] = await Promise.all([
+  // Test YouTube + Discord API + Discord CDN in parallel
+  const [ytOk, dcApiOk, dcCdnOk] = await Promise.all([
     testSingleConnection(port, timeoutSec, 'https://www.youtube.com/'),
-    testSingleConnection(port, timeoutSec, 'https://discord.com/api/v10/gateway')
+    testSingleConnection(port, timeoutSec, 'https://discord.com/api/v10/gateway'),
+    testSingleConnection(port, timeoutSec, 'https://cdn.discordapp.com/')
   ]);
 
-  if (ytOk && dcOk) return true;
+  if (ytOk && dcApiOk && dcCdnOk) return true;
 
-  // Retry failed endpoints with alternate URLs
   let ytPassed = ytOk;
-  let dcPassed = dcOk;
+  let dcPassed = dcApiOk || dcCdnOk;
 
   if (!ytPassed) {
     ytPassed = await testSingleConnection(port, timeoutSec, 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg');
@@ -1519,9 +1556,12 @@ async function testProxyConnection(port = 1080, timeoutSec = 8) {
   }
 
   if (!dcPassed) {
-    dcPassed = await testSingleConnection(port, timeoutSec, 'https://cdn.discordapp.com/');
+    // Try more Discord endpoints
+    const dcMedia = await testSingleConnection(port, timeoutSec, 'https://media.discordapp.net/');
+    const dcGateway = await testSingleConnection(port, timeoutSec, 'https://gateway.discord.gg/');
+    dcPassed = dcMedia || dcGateway;
     if (!dcPassed) {
-      sendLog({ type: 'warning', message: 'Discord не прошёл через прокси — стратегия не подходит' });
+      sendLog({ type: 'warning', message: 'Discord (API + CDN + media + gateway) не прошёл — стратегия не подходит' });
       return false;
     }
   }
@@ -1977,6 +2017,9 @@ async function startProxy() {
       sendStatus();
       return { success: false, error: lastError };
     }
+    // Set clean DNS (1.1.1.1, 8.8.8.8) to avoid ISP DNS poisoning for Discord
+    setCleanDns(services);
+    sendLog({ type: 'info', message: 'DNS установлен на 1.1.1.1 / 8.8.8.8 (защита от подмены)' });
     // Block QUIC (UDP 443) so YouTube uses TCP which goes through tpws
     await enableQuicBlock();
   }
@@ -2011,16 +2054,29 @@ async function startProxy() {
   
   sendLog({ type: 'info', message: `Начинаю перебор ${totalStrategies} стратегий...` });
 
-  // macOS: update hosts for Discord voice servers (finland*.discord.media)
+  // macOS: update hosts for Discord voice servers (all regions)
   if (process.platform === 'darwin') {
     try {
       const hostsResult = await updateHostsMacOS();
       if (hostsResult.success && !hostsResult.alreadyExists) {
-        sendLog({ type: 'info', message: 'Hosts обновлён для Discord голоса' });
+        sendLog({ type: 'info', message: 'Hosts обновлён для Discord голоса (все регионы)' });
       }
     } catch (e) {
       sendLog({ type: 'warning', message: 'Не удалось обновить hosts — голос Discord может не работать' });
     }
+    // Flush DNS cache so new hosts entries and clean DNS take effect immediately
+    flushDnsCache();
+    sendLog({ type: 'info', message: 'DNS кэш очищен' });
+
+    // Clear Discord Electron cache on macOS (like we do on Windows)
+    try {
+      const discordBase = path.join(process.env.HOME || '', 'Library', 'Application Support', 'discord');
+      for (const d of ['Cache', 'Code Cache', 'GPUCache']) {
+        const full = path.join(discordBase, d);
+        if (fs.existsSync(full)) fs.rmSync(full, { recursive: true });
+      }
+      sendLog({ type: 'info', message: 'Кэш Discord очищен' });
+    } catch (e) {}
   }
 
   // Windows: update hosts and clear Discord cache at each connection start, then check admin
@@ -2121,6 +2177,7 @@ async function startProxy() {
               : `Процесс обхода завершился с ошибкой (код: ${code})`;
             lastErrorCode = 'PROCESS_CRASHED';
             disableSystemProxy();
+            restoreDns();
             updateTrayMenu();
             sendLog({ type: 'error', message: `Стратегия ${prevStrategy} прекратила работу (код: ${code})` });
             sendStatus();
@@ -2286,6 +2343,9 @@ async function startProxy() {
 function stopProxy() {
   // Disable system proxy FIRST (before killing tpws)
   disableSystemProxy();
+  
+  // Restore original DNS settings
+  restoreDns();
   
   // Restore QUIC (remove pf block)
   disableQuicBlock();
@@ -2528,9 +2588,23 @@ function generateFallbackHostsData() {
   ];
   for (const d of tgDomains) lines.push(`149.154.167.220 ${d}`);
   lines.push('');
-  // Discord voice servers (finland region, ports 10000-10199)
-  for (let i = 10000; i <= 10199; i++) {
-    lines.push(`104.25.158.178 finland${i}.discord.media`);
+
+  // Discord voice servers — ALL regions, ports 10000-10099
+  const voiceIp = '104.25.158.178';
+  const regions = [
+    'finland', 'russia',
+    'us-east', 'us-west', 'us-south', 'us-central',
+    'eu-central', 'eu-west',
+    'brazil', 'hongkong', 'india', 'japan', 'singapore',
+    'southafrica', 'south-korea', 'sydney',
+    'bucharest', 'tel-aviv', 'newark', 'milan',
+    'rotterdam', 'madrid', 'stockholm', 'buenos-aires',
+    'atlanta', 'seattle', 'santa-clara', 'oregon'
+  ];
+  for (const region of regions) {
+    for (let i = 10000; i <= 10099; i++) {
+      lines.push(`${voiceIp} ${region}${i}.discord.media`);
+    }
   }
   return lines.join('\n');
 }
@@ -2820,8 +2894,9 @@ if (!gotTheLock) {
   // ============= APP LIFECYCLE =============
 
   app.whenReady().then(async () => {
-    // Clean up stale proxy settings from previous crash
+    // Clean up stale proxy/DNS settings from previous crash
     disableSystemProxy();
+    restoreDns();
     
     createWindow();
     createTray();
@@ -2878,6 +2953,7 @@ if (!gotTheLock) {
   // Ensure proxy cleanup on any exit scenario
   function emergencyCleanup() {
     try { disableSystemProxy(); } catch (e) {}
+    try { restoreDns(); } catch (e) {}
     try { disableQuicBlock(); } catch (e) {}
     try { stopWinwsMonitor(); } catch (e) {}
     try { if (proxyProcess) proxyProcess.kill(); } catch (e) {}
