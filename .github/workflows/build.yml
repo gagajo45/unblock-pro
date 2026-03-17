@@ -35,9 +35,11 @@ jobs:
             OLD_VERSION=$(node -p "require('./package.json').version")
             npm version patch --no-git-tag-version
             VERSION=$(node -p "require('./package.json').version")
+            VERSION_SONIC=$(node -p "require('./package.json').versionSonic || require('./package.json').version")
+            sed -i "s/ · v[0-9]*\\.[0-9]*\\.[0-9]*/ · v$VERSION/" README.md
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add package.json package-lock.json
+            git add package.json package-lock.json README.md
             if git diff --staged --quiet; then
               echo "should_build=false" >> $GITHUB_OUTPUT
               echo "version=$OLD_VERSION" >> $GITHUB_OUTPUT

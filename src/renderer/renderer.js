@@ -220,6 +220,31 @@ async function loadSystemInfo() {
         connectBtn.title = 'Запустите приложение от имени администратора';
         connectBtn.classList.add('disabled-no-admin');
       }
+      const restartAsAdminBtn = document.getElementById('restartAsAdminBtn');
+      if (restartAsAdminBtn && !restartAsAdminBtn.dataset.bound) {
+        restartAsAdminBtn.dataset.bound = '1';
+        restartAsAdminBtn.addEventListener('click', async () => {
+          const r = await window.api?.restartAsAdmin?.();
+          if (r && !r.ok) alert(r.error || 'Ошибка');
+        });
+      }
+    }
+
+    // Portable: show update hint (auto-update on startup)
+    const portableHint = document.getElementById('portableUpdateHint');
+    const releasesLink = document.getElementById('releasesLink');
+    const exePathEl = document.getElementById('portableExePath');
+    if (info.isPortable && portableHint && releasesLink) {
+      portableHint.style.display = 'block';
+      releasesLink.href = info.releasesUrl || 'https://github.com/gagajo45/unblock-pro/releases';
+      if (exePathEl && info.executablePath) exePathEl.textContent = info.executablePath;
+      if (!releasesLink.dataset.bound) {
+        releasesLink.dataset.bound = '1';
+        releasesLink.addEventListener('click', (e) => {
+          e.preventDefault();
+          window.api?.openExternal?.(releasesLink.href);
+        });
+      }
     }
   } catch (error) {
     // silently handle

@@ -60,6 +60,8 @@ body {
 .admin-warning-banner {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 10px 16px;
   background: linear-gradient(90deg, rgba(239, 68, 68, 0.15), rgba(245, 158, 11, 0.1));
   border-bottom: 1px solid rgba(239, 68, 68, 0.25);
@@ -67,6 +69,7 @@ body {
 }
 
 .admin-warning-info {
+  flex: 1;
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -78,6 +81,28 @@ body {
 .admin-warning-info svg {
   flex-shrink: 0;
   margin-top: 1px;
+}
+
+.admin-restart-btn {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--bg-primary);
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity var(--transition-normal);
+}
+
+.admin-restart-btn:hover {
+  opacity: 0.9;
+}
+
+.admin-restart-btn:active {
+  opacity: 0.8;
 }
 
 /* Update banner */
@@ -1250,6 +1275,25 @@ body {
 .info-actions .link-btn:hover {
   color: var(--text-primary);
 }
+
+.portable-update-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.portable-update-hint .link-btn {
+  font-size: inherit;
+}
+
+.portable-update-hint code {
+  font-size: 11px;
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  word-break: break-all;
+}
+
 
 /* Promo card */
 .promo-card {

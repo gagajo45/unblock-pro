@@ -16,3 +16,8 @@ bin/win32/
 *.tsbuildinfo
 
 .orchids/
+
+# Локальные скрипты и инструкции (не в репо)
+push-release.ps1
+scripts/sync-versions.js
+GIT_AND_RELEASES.md

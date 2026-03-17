@@ -2640,7 +2640,8 @@ function createTray() {
 
 function setupAutoUpdater() {
   if (isDev) return; // Don't check for updates in dev mode
-  
+  if (isPortableExe()) return; // Portable: uses setupPortableAutoUpdater
+
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   
@@ -2678,6 +2679,144 @@ function setupAutoUpdater() {
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch(() => {});
   }, 5000);
+}
+
+function setupPortableAutoUpdater() {
+  if (isDev || process.platform !== 'win32' || !isPortableExe()) return;
+  setTimeout(async () => {
+    try {
+      const r = await runPortableUpdateCheck();
+      if (r.ok && r.updated && r.downloadUrl) {
+        sendUpdateStatus('available', r.version);
+        await runPortableUpdateInstall(r.downloadUrl, r.version);
+      }
+    } catch (e) {
+      sendUpdateStatus('error');
+    }
+  }, 5000);
+}
+
+async function runPortableUpdateCheck() {
+  const { owner, repo } = getPublishConfig();
+  const apiUrl = `https://api.github.com/repos/${owner}/${repo}/releases/latest`;
+  const data = await new Promise((resolve, reject) => {
+    const req = https.get(apiUrl, {
+      family: 4, lookup: ipv4Lookup,
+      headers: { 'User-Agent': 'UnblockPro' },
+      timeout: 15000
+    }, (res) => {
+      if (res.statusCode === 301 || res.statusCode === 302) {
+        const loc = res.headers.location;
+        if (loc) {
+          https.get(loc, { family: 4, lookup: ipv4Lookup, headers: { 'User-Agent': 'UnblockPro' }, timeout: 15000 }, (r) => readBody(r, resolve, reject));
+          return;
+        }
+      }
+      readBody(res, resolve, reject);
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('Таймаут')); });
+  });
+  function readBody(res, resolve, reject) {
+    let buf = '';
+    res.on('data', c => buf += c);
+    res.on('end', () => {
+      try {
+        const json = JSON.parse(buf);
+        const tag = (json.tag_name || '').replace(/^v/, '');
+        const current = app.getVersion();
+        if (compareVersions(current, tag) >= 0) return resolve({ ok: true, updated: false });
+        const asset = (json.assets || []).find(a => {
+          const n = (a.name || '').toLowerCase();
+          return n.includes('portable') && n.endsWith('.exe');
+        });
+        if (!asset?.browser_download_url) return resolve({ ok: false, error: 'Портативный exe не найден' });
+        resolve({ ok: true, updated: true, version: tag, downloadUrl: asset.browser_download_url });
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+  return data;
+}
+
+async function runPortableUpdateInstall(downloadUrl, version) {
+  const targetPath = process.execPath;
+  const os = require('os');
+  const newExePath = path.join(os.tmpdir(), `UnblockPro-portable-update-${Date.now()}.exe`);
+
+  const download = () => new Promise((resolve, reject) => {
+    const req = https.get(downloadUrl, {
+      family: 4, lookup: ipv4Lookup,
+      headers: { 'User-Agent': 'UnblockPro' },
+      timeout: 120000
+    }, (res) => {
+      if (res.statusCode === 301 || res.statusCode === 302 && res.headers.location) {
+        https.get(res.headers.location, { family: 4, lookup: ipv4Lookup, headers: { 'User-Agent': 'UnblockPro' }, timeout: 120000 }, (r) => pipeWithProgress(r, resolve, reject));
+        return;
+      }
+      pipeWithProgress(res, resolve, reject);
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('Таймаут')); });
+  });
+
+  function pipeWithProgress(res, resolve, reject) {
+    if (res.statusCode >= 400) {
+      reject(new Error(`HTTP ${res.statusCode}`));
+      return;
+    }
+    const total = parseInt(res.headers['content-length'] || '0', 10);
+    let received = 0;
+    const file = fs.createWriteStream(newExePath);
+    res.on('data', (chunk) => {
+      received += chunk.length;
+      const percent = total ? Math.round((received / total) * 100) : 0;
+      if (mainWindow?.webContents) {
+        mainWindow.webContents.send('update-download-progress', { percent, transferred: received, total });
+      }
+    });
+    res.pipe(file);
+    file.on('finish', () => { file.close(); resolve(); });
+    file.on('error', reject);
+  }
+
+  await download();
+  lastPortableUpdatePath = newExePath;
+  sendUpdateStatus('downloaded', version);
+}
+
+let lastPortableUpdatePath = null;
+
+function runPortableUpdateApply() {
+  if (!lastPortableUpdatePath || !fs.existsSync(lastPortableUpdatePath)) return null;
+  const targetPath = process.execPath;
+  const os = require('os');
+  const psScript = `
+$ErrorActionPreference = 'Stop'
+$newPath = '${lastPortableUpdatePath.replace(/'/g, "''")}'
+$targetPath = '${targetPath.replace(/'/g, "''")}'
+Start-Sleep -Seconds 3
+Copy-Item -LiteralPath $newPath -Destination $targetPath -Force
+Remove-Item -LiteralPath $newPath -Force -ErrorAction SilentlyContinue
+Start-Process -FilePath $targetPath -Verb RunAs
+`;
+  const psPath = path.join(os.tmpdir(), `UnblockPro-update-${Date.now()}.ps1`);
+  fs.writeFileSync(psPath, psScript.trim(), 'utf8');
+  return new Promise((resolve, reject) => {
+    sendLog({ type: 'info', message: 'Запрос прав для замены exe и перезапуска...' });
+    sudo.exec(`powershell -ExecutionPolicy Bypass -NoProfile -File "${psPath.replace(/\\/g, '\\\\')}"`, { name: 'UnblockPro update' }, (err) => {
+      try { fs.unlinkSync(psPath); } catch (e) {}
+      if (err) {
+        resolve({ ok: false, error: (err.message || '').toLowerCase().includes('cancel') ? 'Отклонено' : err.message });
+        return;
+      }
+      try { stopProxy(); } catch (e) {}
+      app.isQuitting = true;
+      setTimeout(() => app.quit(), 500);
+      resolve({ ok: true });
+    });
+  });
 }
 
 function sendUpdateStatus(status, version = null) {
@@ -2971,15 +3110,203 @@ function getVersionSonic() {
   }
 }
 
-ipcMain.handle('get-system-info', () => ({
-  platform: process.platform,
-  arch: process.arch,
-  version: app.getVersion(),
-  versionSonic: getVersionSonic(),
-  binaryExists: fs.existsSync(getBinaryPath() || ''),
-  binaryPath: getBinaryPath(),
-  isAdmin: isRunningAsAdmin()
-}));
+function isPortableExe() {
+  if (process.platform !== 'win32') return false;
+  const exe = (process.execPath || '').toLowerCase();
+  return exe.includes('portable');
+}
+
+function getPublishConfig() {
+  try {
+    const pkgPath = path.join(app.getAppPath(), 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    const pub = pkg.build?.publish || {};
+    return { owner: pub.owner || 'gagajo45', repo: pub.repo || 'unblock-pro' };
+  } catch (e) {
+    return { owner: 'gagajo45', repo: 'unblock-pro' };
+  }
+}
+
+function compareVersions(a, b) {
+  const pa = (a || '').replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+  const pb = (b || '').replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const va = pa[i] || 0;
+    const vb = pb[i] || 0;
+    if (va > vb) return 1;
+    if (va < vb) return -1;
+  }
+  return 0;
+}
+
+ipcMain.handle('check-for-portable-update', async () => {
+  if (process.platform !== 'win32' || !isPortableExe()) {
+    return { ok: false, error: 'Только для портативной версии Windows' };
+  }
+  const { owner, repo } = getPublishConfig();
+  const apiUrl = `https://api.github.com/repos/${owner}/${repo}/releases/latest`;
+  return new Promise((resolve) => {
+    const req = https.get(apiUrl, {
+      family: 4, lookup: ipv4Lookup,
+      headers: { 'User-Agent': 'UnblockPro' },
+      timeout: 15000
+    }, (res) => {
+      if (res.statusCode === 301 || res.statusCode === 302) {
+        const loc = res.headers.location;
+        if (loc) {
+          https.get(loc, { family: 4, lookup: ipv4Lookup, headers: { 'User-Agent': 'UnblockPro' }, timeout: 15000 }, (r) => handleRes(r, resolve));
+          return;
+        }
+      }
+      handleRes(res, resolve);
+    });
+    req.on('error', (e) => resolve({ ok: false, error: e.message }));
+    req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'Таймаут' }); });
+  });
+
+  function handleRes(res, resolve) {
+    let data = '';
+    res.on('data', (c) => data += c);
+    res.on('end', () => {
+      try {
+        const json = JSON.parse(data);
+        const tag = (json.tag_name || '').replace(/^v/, '');
+        const current = app.getVersion();
+        if (compareVersions(current, tag) >= 0) {
+          return resolve({ ok: true, updated: false });
+        }
+        const asset = (json.assets || []).find(a => {
+          const n = (a.name || '').toLowerCase();
+          return n.includes('portable') && n.endsWith('.exe');
+        });
+        if (!asset || !asset.browser_download_url) {
+          return resolve({ ok: false, error: 'Портативный exe не найден в релизе' });
+        }
+        resolve({ ok: true, updated: true, version: tag, downloadUrl: asset.browser_download_url });
+      } catch (e) {
+        resolve({ ok: false, error: e.message || 'Ошибка парсинга' });
+      }
+    });
+  }
+});
+
+ipcMain.handle('install-portable-update', async (event, { downloadUrl }) => {
+  if (process.platform !== 'win32' || !isPortableExe() || !downloadUrl) {
+    return { ok: false, error: 'Некорректный запрос' };
+  }
+  const targetPath = process.execPath;
+  const os = require('os');
+  const tempDir = os.tmpdir();
+  const newExePath = path.join(tempDir, `UnblockPro-portable-update-${Date.now()}.exe`);
+
+  return new Promise((resolve) => {
+    const req = https.get(downloadUrl, {
+      family: 4, lookup: ipv4Lookup,
+      headers: { 'User-Agent': 'UnblockPro' },
+      timeout: 120000
+    }, (res) => {
+      if (res.statusCode === 301 || res.statusCode === 302) {
+        const loc = res.headers.location;
+        if (loc) {
+          https.get(loc, { family: 4, lookup: ipv4Lookup, headers: { 'User-Agent': 'UnblockPro' }, timeout: 120000 }, (r) => pipeToFile(r, resolve));
+          return;
+        }
+      }
+      pipeToFile(res, resolve);
+    });
+    req.on('error', (e) => resolve({ ok: false, error: e.message }));
+    req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'Таймаут загрузки' }); });
+  });
+
+  function pipeToFile(res, resolve) {
+    if (res.statusCode >= 400) {
+      try { fs.unlinkSync(newExePath); } catch (x) {}
+      resolve({ ok: false, error: `HTTP ${res.statusCode}` });
+      return;
+    }
+    const file = fs.createWriteStream(newExePath);
+    res.pipe(file);
+    file.on('finish', () => {
+      file.close();
+      runUpdateScript(newExePath, targetPath, resolve);
+    });
+    file.on('error', (e) => {
+      try { fs.unlinkSync(newExePath); } catch (x) {}
+      resolve({ ok: false, error: e.message });
+    });
+  }
+
+  function runUpdateScript(newPath, targetPath, resolve) {
+    const psScript = `
+$ErrorActionPreference = 'Stop'
+$newPath = '${newPath.replace(/'/g, "''")}'
+$targetPath = '${targetPath.replace(/'/g, "''")}'
+Start-Sleep -Seconds 3
+Copy-Item -LiteralPath $newPath -Destination $targetPath -Force
+Remove-Item -LiteralPath $newPath -Force -ErrorAction SilentlyContinue
+Start-Process -FilePath $targetPath -Verb RunAs
+`;
+    const psPath = path.join(os.tmpdir(), `UnblockPro-update-${Date.now()}.ps1`);
+    fs.writeFileSync(psPath, psScript.trim(), 'utf8');
+    sendLog({ type: 'info', message: 'Запрос прав для замены exe и перезапуска...' });
+    sudo.exec(`powershell -ExecutionPolicy Bypass -NoProfile -File "${psPath.replace(/\\/g, '\\\\')}"`, { name: 'UnblockPro update' }, (err) => {
+      try { fs.unlinkSync(psPath); } catch (e) {}
+      if (err && (err.message || '').toLowerCase().includes('cancel')) {
+        try { fs.unlinkSync(newExePath); } catch (x) {}
+        resolve({ ok: false, error: 'Отклонено' });
+        return;
+      }
+      if (err) {
+        try { fs.unlinkSync(newExePath); } catch (x) {}
+        resolve({ ok: false, error: err.message || 'Ошибка' });
+        return;
+      }
+      try { stopProxy(); } catch (e) {}
+      app.isQuitting = true;
+      setTimeout(() => app.quit(), 500);
+      resolve({ ok: true });
+    });
+  }
+});
+
+ipcMain.handle('restart-as-admin', () => {
+  if (process.platform !== 'win32' || isRunningAsAdmin()) return { ok: false, error: 'Уже с правами администратора' };
+  const exePath = process.execPath;
+  const ps = spawn('powershell', [
+    '-NoProfile', '-NonInteractive',
+    '-Command', `Start-Sleep -Seconds 2; Start-Process -FilePath '${exePath.replace(/'/g, "''")}' -Verb RunAs`
+  ], { detached: true, stdio: 'ignore' });
+  ps.unref();
+  app.isQuitting = true;
+  setTimeout(() => app.quit(), 300);
+  return { ok: true };
+});
+
+ipcMain.handle('get-system-info', () => {
+  let releasesUrl = 'https://github.com/gagajo45/unblock-pro/releases';
+  try {
+    const pkgPath = path.join(app.getAppPath(), 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      const pub = pkg.build?.publish || {};
+      if (pub.owner && pub.repo) {
+        releasesUrl = `https://github.com/${pub.owner}/${pub.repo}/releases`;
+      }
+    }
+  } catch (e) {}
+  return {
+    platform: process.platform,
+    arch: process.arch,
+    version: app.getVersion(),
+    versionSonic: getVersionSonic(),
+    binaryExists: fs.existsSync(getBinaryPath() || ''),
+    binaryPath: getBinaryPath(),
+    isAdmin: isRunningAsAdmin(),
+    isPortable: isPortableExe(),
+    executablePath: process.execPath,
+    releasesUrl
+  };
+});
 
 ipcMain.handle('get-settings', () => {
   return loadSettings();
@@ -2988,6 +3315,11 @@ ipcMain.handle('get-settings', () => {
 ipcMain.handle('install-update', async () => {
   if (isDev) {
     return { ok: false, error: 'В режиме разработки обновление недоступно' };
+  }
+  if (isPortableExe()) {
+    const result = await runPortableUpdateApply();
+    if (!result) return { ok: false, error: 'Обновление не скачано' };
+    return result;
   }
 
   if (mainWindow && mainWindow.webContents) {
@@ -3110,6 +3442,7 @@ if (!gotTheLock) {
 
     // Setup auto-updater
     setupAutoUpdater();
+    setupPortableAutoUpdater();
 
     // Apply saved auto-start setting
     const settings = loadSettings();

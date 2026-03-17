@@ -29,6 +29,9 @@ contextBridge.exposeInMainWorld('api', {
   // Updates
   installUpdate: () => ipcRenderer.invoke('install-update'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  checkForPortableUpdate: () => ipcRenderer.invoke('check-for-portable-update'),
+  installPortableUpdate: (opts) => ipcRenderer.invoke('install-portable-update', opts),
+  restartAsAdmin: () => ipcRenderer.invoke('restart-as-admin'),
   
   // Logs & errors
   getLogs: () => ipcRenderer.invoke('get-logs'),
