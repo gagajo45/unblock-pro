@@ -146,6 +146,28 @@ function setupEventListeners() {
     await window.api.setSelectedStrategy(strategySelect.value);
   });
   
+  // Simulate portable update apply (тест замены exe)
+  document.getElementById('simulateUpdateApplyBtn')?.addEventListener('click', async () => {
+    if (!window.api?.simulatePortableUpdateApply) return;
+    try {
+      const r = await window.api.simulatePortableUpdateApply();
+      if (r && !r.ok) alert(r.error || 'Ошибка');
+    } catch (e) {
+      alert('Ошибка: ' + (e.message || 'неизвестно'));
+    }
+  });
+
+  // Restart as admin (Windows without admin)
+  document.getElementById('restartAsAdminBtn')?.addEventListener('click', async () => {
+    if (!window.api?.restartAsAdmin) return;
+    try {
+      const r = await window.api.restartAsAdmin();
+      if (r && !r.ok) alert(r.error || 'Ошибка');
+    } catch (e) {
+      alert('Ошибка: ' + (e.message || 'неизвестно'));
+    }
+  });
+
   // Error card dismiss
   errorDismiss.addEventListener('click', () => {
     hideError();
@@ -220,24 +242,18 @@ async function loadSystemInfo() {
         connectBtn.title = 'Запустите приложение от имени администратора';
         connectBtn.classList.add('disabled-no-admin');
       }
-      const restartAsAdminBtn = document.getElementById('restartAsAdminBtn');
-      if (restartAsAdminBtn && !restartAsAdminBtn.dataset.bound) {
-        restartAsAdminBtn.dataset.bound = '1';
-        restartAsAdminBtn.addEventListener('click', async () => {
-          const r = await window.api?.restartAsAdmin?.();
-          if (r && !r.ok) alert(r.error || 'Ошибка');
-        });
-      }
     }
 
     // Portable: show update hint (auto-update on startup)
     const portableHint = document.getElementById('portableUpdateHint');
     const releasesLink = document.getElementById('releasesLink');
     const exePathEl = document.getElementById('portableExePath');
+    const simulateUpdateApplyBtn = document.getElementById('simulateUpdateApplyBtn');
     if (info.isPortable && portableHint && releasesLink) {
       portableHint.style.display = 'block';
       releasesLink.href = info.releasesUrl || 'https://github.com/gagajo45/unblock-pro/releases';
       if (exePathEl && info.executablePath) exePathEl.textContent = info.executablePath;
+      if (simulateUpdateApplyBtn && info.simulateUpdateApply) simulateUpdateApplyBtn.style.display = 'inline';
       if (!releasesLink.dataset.bound) {
         releasesLink.dataset.bound = '1';
         releasesLink.addEventListener('click', (e) => {
@@ -641,15 +657,19 @@ function handleUpdateStatus(data) {
 }
 
 async function handleUpdateBtnClick() {
-  if (!updateDownloadedVersion || !window.api) return;
+  if (!window.api || !updateBtn) return;
   try {
     updateBtn.disabled = true;
     updateBtn.textContent = 'Перезапуск...';
     updateText.textContent = 'Закрытие приложения...';
-    await window.api.installUpdate();
-
+    const result = await window.api.installUpdate();
+    if (result && result.ok === false) {
+      updateBtn.disabled = false;
+      updateBtn.textContent = 'Перезапустить';
+      updateText.textContent = 'Ошибка: ' + (result.error || 'не удалось');
+      return;
+    }
     // If we're still here after 8 seconds, the restart likely failed silently.
-    // Show retry button so the user isn't stuck on "Closing app..." forever.
     setTimeout(() => {
       if (!updateBtn) return;
       updateBtn.disabled = false;

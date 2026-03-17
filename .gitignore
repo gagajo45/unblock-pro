@@ -17,6 +17,10 @@ bin/win32/
 
 .orchids/
 
+# Тестовая папка для portable update
+test-portable-update/
+test-portable-update-*/
+
 # Локальные скрипты и инструкции (не в репо)
 push-release.ps1
 scripts/sync-versions.js

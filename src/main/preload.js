@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('api', {
   checkForPortableUpdate: () => ipcRenderer.invoke('check-for-portable-update'),
   installPortableUpdate: (opts) => ipcRenderer.invoke('install-portable-update', opts),
   restartAsAdmin: () => ipcRenderer.invoke('restart-as-admin'),
+  simulatePortableUpdateApply: () => ipcRenderer.invoke('simulate-portable-update-apply'),
   
   // Logs & errors
   getLogs: () => ipcRenderer.invoke('get-logs'),

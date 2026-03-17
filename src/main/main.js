@@ -2682,7 +2682,25 @@ function setupAutoUpdater() {
 }
 
 function setupPortableAutoUpdater() {
-  if (isDev || process.platform !== 'win32' || !isPortableExe()) return;
+  const simulateUpdate = process.env.UNBLOCKPRO_SIMULATE_UPDATE === '1';
+  const updateFromPath = process.env.UNBLOCKPRO_UPDATE_FROM_PATH;
+  if (!simulateUpdate && !updateFromPath && (isDev || process.platform !== 'win32' || !isPortableExe())) return;
+  if (updateFromPath && fs.existsSync(updateFromPath)) {
+    let sent = false;
+    const sendTestUpdate = () => {
+      if (sent) return;
+      sent = true;
+      sendUpdateStatus('available', 'test');
+      sendUpdateStatus('downloaded', 'test');
+    };
+    if (mainWindow?.webContents) {
+      mainWindow.webContents.once('did-finish-load', sendTestUpdate);
+      setTimeout(sendTestUpdate, 2500);
+    } else {
+      setTimeout(sendTestUpdate, 2000);
+    }
+    return;
+  }
   setTimeout(async () => {
     try {
       const r = await runPortableUpdateCheck();
@@ -2724,7 +2742,7 @@ async function runPortableUpdateCheck() {
       try {
         const json = JSON.parse(buf);
         const tag = (json.tag_name || '').replace(/^v/, '');
-        const current = app.getVersion();
+        const current = process.env.UNBLOCKPRO_SIMULATE_UPDATE === '1' ? '0.0.1' : app.getVersion();
         if (compareVersions(current, tag) >= 0) return resolve({ ok: true, updated: false });
         const asset = (json.assets || []).find(a => {
           const n = (a.name || '').toLowerCase();
@@ -2782,40 +2800,123 @@ async function runPortableUpdateInstall(downloadUrl, version) {
   }
 
   await download();
+  let preferredName = path.basename(newExePath);
+  try {
+    const urlName = path.basename(new URL(downloadUrl).pathname);
+    if (urlName && urlName.endsWith('.exe')) preferredName = urlName;
+  } catch (e) {}
   lastPortableUpdatePath = newExePath;
+  lastPortableUpdateNewName = preferredName;
   sendUpdateStatus('downloaded', version);
 }
 
 let lastPortableUpdatePath = null;
+let lastPortableUpdateNewName = null;
 
 function runPortableUpdateApply() {
-  if (!lastPortableUpdatePath || !fs.existsSync(lastPortableUpdatePath)) return null;
-  const targetPath = process.execPath;
+  const updatePath = process.env.UNBLOCKPRO_UPDATE_FROM_PATH || lastPortableUpdatePath;
+  if (!updatePath || !fs.existsSync(updatePath)) return null;
+  if (isDev) return Promise.resolve({ ok: false, error: 'В dev режиме замена exe не выполняется (симуляция)' });
+  const targetPath = process.env.UNBLOCKPRO_UPDATE_TARGET_PATH || process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+  if (!fs.existsSync(targetPath)) {
+    return Promise.resolve({ ok: false, error: 'Целевой exe не найден: ' + targetPath });
+  }
   const os = require('os');
+  const targetDir = path.dirname(targetPath);
+  const debugLog = path.join(app.getPath('userData'), 'update-debug.txt');
+  try {
+    fs.appendFileSync(debugLog, `[${new Date().toISOString()}] runPortableUpdateApply target=${targetPath} update=${updatePath}\n`, 'utf8');
+  } catch (e) {}
+  const isTestMode = !!process.env.UNBLOCKPRO_UPDATE_FROM_PATH;
+  const newExeName = process.env.UNBLOCKPRO_UPDATE_NEW_NAME || lastPortableUpdateNewName || path.basename(updatePath);
+  const targetPathNew = path.join(targetDir, newExeName);
+  const targetDirEsc = targetDir.replace(/"/g, '""');
+  const targetPathNewEsc = targetPathNew.replace(/"/g, '""');
+  const updatePathEsc = updatePath.replace(/"/g, '""');
+  const newExeNameEsc = newExeName.replace(/"/g, '""');
+  const launcherBat = path.join(os.tmpdir(), `UnblockPro-restart-${Date.now()}.bat`);
+  const oldExeName = path.basename(targetPath);
+  const batLines = [
+    '@echo off',
+    'timeout /t 5 /nobreak >nul',
+    'cd /d "' + targetDirEsc + '"',
+    'if exist "*.exe.bak" del "*.exe.bak"',
+    'rename "' + oldExeName.replace(/"/g, '""') + '" "' + oldExeName.replace(/"/g, '""') + '.bak"',
+    'copy "' + updatePathEsc + '" "' + newExeNameEsc + '"',
+    'set UNBLOCKPRO_UPDATE_FROM_PATH=& set UNBLOCKPRO_UPDATE_TARGET_PATH=& set UNBLOCKPRO_UPDATE_NEW_NAME=',
+    'start "" "' + targetPathNewEsc + '"',
+    'del "*.exe.bak" 2>nul',
+    'del "%~f0"'
+  ];
+  const batContent = batLines.join('\r\n');
+  fs.writeFileSync(launcherBat, batContent, 'ascii');
+  const startVerb = isTestMode ? '' : ' -Verb RunAs';
+  const logPath = debugLog;
   const psScript = `
 $ErrorActionPreference = 'Stop'
-$newPath = '${lastPortableUpdatePath.replace(/'/g, "''")}'
+$logPath = '${logPath.replace(/'/g, "''")}'
+$newPath = '${updatePath.replace(/'/g, "''")}'
 $targetPath = '${targetPath.replace(/'/g, "''")}'
-Start-Sleep -Seconds 3
-Copy-Item -LiteralPath $newPath -Destination $targetPath -Force
-Remove-Item -LiteralPath $newPath -Force -ErrorAction SilentlyContinue
-Start-Process -FilePath $targetPath -Verb RunAs
+$launcherBat = '${launcherBat.replace(/'/g, "''")}'
+"$(Get-Date) Starting launcher (waits for app exit), target=$targetPath new=$newPath" | Out-File $logPath -Append
+if (-not (Test-Path -LiteralPath $targetPath)) { "ERROR: target not found" | Out-File $logPath -Append; exit 1 }
+if (-not (Test-Path -LiteralPath $newPath)) { "ERROR: new exe not found" | Out-File $logPath -Append; exit 1 }
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $launcherBat -WindowStyle Hidden${startVerb}
+"$(Get-Date) Launcher started, app will quit" | Out-File $logPath -Append
 `;
   const psPath = path.join(os.tmpdir(), `UnblockPro-update-${Date.now()}.ps1`);
   fs.writeFileSync(psPath, psScript.trim(), 'utf8');
-  return new Promise((resolve, reject) => {
-    sendLog({ type: 'info', message: 'Запрос прав для замены exe и перезапуска...' });
-    sudo.exec(`powershell -ExecutionPolicy Bypass -NoProfile -File "${psPath.replace(/\\/g, '\\\\')}"`, { name: 'UnblockPro update' }, (err) => {
-      try { fs.unlinkSync(psPath); } catch (e) {}
-      if (err) {
-        resolve({ ok: false, error: (err.message || '').toLowerCase().includes('cancel') ? 'Отклонено' : err.message });
-        return;
+  const runScript = (execFn) => {
+    return new Promise((resolve) => {
+      if (!isTestMode) {
+        sendLog({ type: 'info', message: 'Запрос прав для замены exe и перезапуска...' });
       }
-      try { stopProxy(); } catch (e) {}
-      app.isQuitting = true;
-      setTimeout(() => app.quit(), 500);
-      resolve({ ok: true });
+      execFn((err) => {
+        try { fs.unlinkSync(psPath); } catch (e) {}
+        if (err) {
+          resolve({ ok: false, error: (err.message || '').toLowerCase().includes('cancel') ? 'Отклонено' : err.message });
+          return;
+        }
+        try { stopProxy(); } catch (e) {}
+        app.isQuitting = true;
+        setTimeout(() => app.quit(), 500);
+        resolve({ ok: true });
+      });
     });
+  };
+  if (isTestMode) {
+    return runScript((cb) => {
+      const pwsh = process.env.SystemRoot
+        ? path.join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+        : 'powershell.exe';
+      const ps = spawn(pwsh, ['-ExecutionPolicy', 'Bypass', '-NoProfile', '-File', psPath], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true
+      });
+      let stderr = '';
+      let stdout = '';
+      ps.stdout?.on('data', (d) => { stdout += d.toString(); });
+      ps.stderr?.on('data', (d) => { stderr += d.toString(); });
+      ps.on('close', (code) => {
+        if (code !== 0) {
+          let errMsg = (stderr || stdout || `Exit ${code}`).trim();
+          try {
+            if (fs.existsSync(logPath)) {
+              const logContent = fs.readFileSync(logPath, 'utf8').trim();
+              if (logContent) errMsg += '\n' + logContent;
+            }
+            errMsg += '\nЛог: ' + logPath;
+          } catch (e) {}
+          cb(new Error(errMsg || 'Скрипт обновления не выполнен'));
+        } else {
+          cb(null);
+        }
+      });
+      ps.on('error', (e) => cb(e));
+    });
+  }
+  return runScript((cb) => {
+    sudo.exec(`powershell -ExecutionPolicy Bypass -NoProfile -File "${psPath.replace(/\\/g, '\\\\')}"`, { name: 'UnblockPro update' }, cb);
   });
 }
 
@@ -3113,7 +3214,49 @@ function getVersionSonic() {
 function isPortableExe() {
   if (process.platform !== 'win32') return false;
   const exe = (process.execPath || '').toLowerCase();
-  return exe.includes('portable');
+  if (exe.includes('portable')) return true;
+  const portableFile = (process.env.PORTABLE_EXECUTABLE_FILE || '').toLowerCase();
+  if (portableFile && portableFile.includes('portable')) return true;
+  if (process.env.UNBLOCKPRO_UPDATE_FROM_PATH) return true;
+  return false;
+}
+
+function isRunningFromTemp() {
+  if (process.platform !== 'win32') return false;
+  const p = (process.execPath || '').toLowerCase();
+  const tempDir = (require('os').tmpdir() || '').toLowerCase();
+  return tempDir && p.startsWith(tempDir);
+}
+
+function getExeFileVersion(exePath) {
+  try {
+    const psPath = path.join(require('os').tmpdir(), `get-ver-${Date.now()}.ps1`);
+    const ps = `$f = Get-Item -LiteralPath '${exePath.replace(/'/g, "''")}'; $f.VersionInfo.ProductVersion`;
+    fs.writeFileSync(psPath, ps, 'utf8');
+    const out = execSync(`powershell -NoProfile -ExecutionPolicy Bypass -File "${psPath.replace(/\\/g, '\\\\')}"`, { encoding: 'utf8', timeout: 5000 });
+    try { fs.unlinkSync(psPath); } catch (e) {}
+    return (out || '').trim();
+  } catch (e) {
+    return null;
+  }
+}
+
+function syncPortableTempToOriginal() {
+  if (process.platform !== 'win32' || !isPortableExe()) return;
+  const originalPath = process.env.PORTABLE_EXECUTABLE_FILE;
+  if (!originalPath || !fs.existsSync(originalPath)) return;
+  const currentPath = process.execPath;
+  if (path.resolve(currentPath) === path.resolve(originalPath)) return;
+  if (!isRunningFromTemp()) return;
+  const currentVersion = app.getVersion();
+  const originalVersion = getExeFileVersion(originalPath);
+  if (!originalVersion || compareVersions(currentVersion, originalVersion) <= 0) return;
+  try {
+    fs.copyFileSync(currentPath, originalPath);
+    sendLog({ type: 'info', message: `Основной exe обновлён до v${currentVersion}` });
+  } catch (e) {
+    sendLog({ type: 'warning', message: 'Не удалось обновить основной exe: ' + (e.message || 'ошибка') });
+  }
 }
 
 function getPublishConfig() {
@@ -3228,7 +3371,7 @@ ipcMain.handle('install-portable-update', async (event, { downloadUrl }) => {
     res.pipe(file);
     file.on('finish', () => {
       file.close();
-      runUpdateScript(newExePath, targetPath, resolve);
+      runUpdateScript(newExePath, targetPath, downloadUrl, resolve);
     });
     file.on('error', (e) => {
       try { fs.unlinkSync(newExePath); } catch (x) {}
@@ -3236,15 +3379,40 @@ ipcMain.handle('install-portable-update', async (event, { downloadUrl }) => {
     });
   }
 
-  function runUpdateScript(newPath, targetPath, resolve) {
+  function runUpdateScript(newPath, targetPath, downloadUrl, resolve) {
+    const origTarget = process.env.PORTABLE_EXECUTABLE_FILE || targetPath;
+    const targetDir = path.dirname(origTarget);
+    let newExeName = path.basename(newPath);
+    if (downloadUrl) {
+      try {
+        const urlName = path.basename(new URL(downloadUrl).pathname);
+        if (urlName && urlName.endsWith('.exe')) newExeName = urlName;
+      } catch (e) {}
+    }
+    const targetPathNew = path.join(targetDir, newExeName);
+    const oldExeName = path.basename(origTarget);
+    const launcherBat = path.join(os.tmpdir(), `UnblockPro-restart-${Date.now()}.bat`);
+    const batLines = [
+      '@echo off',
+      'timeout /t 5 /nobreak >nul',
+      'cd /d "' + targetDir.replace(/"/g, '""') + '"',
+      'if exist "*.exe.bak" del "*.exe.bak"',
+      'rename "' + oldExeName.replace(/"/g, '""') + '" "' + oldExeName.replace(/"/g, '""') + '.bak"',
+      'copy "' + newPath.replace(/"/g, '""') + '" "' + newExeName.replace(/"/g, '""') + '"',
+      'set UNBLOCKPRO_UPDATE_FROM_PATH=& set UNBLOCKPRO_UPDATE_TARGET_PATH=& set UNBLOCKPRO_UPDATE_NEW_NAME=',
+      'start "" "' + targetPathNew.replace(/"/g, '""') + '"',
+      'del "*.exe.bak" 2>nul',
+      'del "%~f0"'
+    ];
+    fs.writeFileSync(launcherBat, batLines.join('\r\n'), 'ascii');
     const psScript = `
 $ErrorActionPreference = 'Stop'
+$targetPath = '${origTarget.replace(/'/g, "''")}'
 $newPath = '${newPath.replace(/'/g, "''")}'
-$targetPath = '${targetPath.replace(/'/g, "''")}'
-Start-Sleep -Seconds 3
-Copy-Item -LiteralPath $newPath -Destination $targetPath -Force
-Remove-Item -LiteralPath $newPath -Force -ErrorAction SilentlyContinue
-Start-Process -FilePath $targetPath -Verb RunAs
+$launcherBat = '${launcherBat.replace(/'/g, "''")}'
+if (-not (Test-Path -LiteralPath $targetPath)) { exit 1 }
+if (-not (Test-Path -LiteralPath $newPath)) { exit 1 }
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $launcherBat -Verb RunAs -WindowStyle Hidden
 `;
     const psPath = path.join(os.tmpdir(), `UnblockPro-update-${Date.now()}.ps1`);
     fs.writeFileSync(psPath, psScript.trim(), 'utf8');
@@ -3269,17 +3437,46 @@ Start-Process -FilePath $targetPath -Verb RunAs
   }
 });
 
+ipcMain.handle('simulate-portable-update-apply', () => {
+  if (process.platform !== 'win32' || !isPortableExe()) return { ok: false, error: 'Только для portable Windows' };
+  const os = require('os');
+  const exePath = process.execPath;
+  const tempPath = path.join(os.tmpdir(), `UnblockPro-portable-update-${Date.now()}.exe`);
+  try {
+    fs.copyFileSync(exePath, tempPath);
+    lastPortableUpdatePath = tempPath;
+    return runPortableUpdateApply();
+  } catch (e) {
+    return Promise.resolve({ ok: false, error: e.message });
+  }
+});
+
 ipcMain.handle('restart-as-admin', () => {
   if (process.platform !== 'win32' || isRunningAsAdmin()) return { ok: false, error: 'Уже с правами администратора' };
-  const exePath = process.execPath;
-  const ps = spawn('powershell', [
-    '-NoProfile', '-NonInteractive',
-    '-Command', `Start-Sleep -Seconds 2; Start-Process -FilePath '${exePath.replace(/'/g, "''")}' -Verb RunAs`
-  ], { detached: true, stdio: 'ignore' });
-  ps.unref();
-  app.isQuitting = true;
-  setTimeout(() => app.quit(), 300);
-  return { ok: true };
+  // electron-builder portable: PORTABLE_EXECUTABLE_FILE = исходный путь exe (не temp)
+  const exePath = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+  const batchPath = path.join(require('os').tmpdir(), `UnblockPro-restart-admin-${Date.now()}.bat`);
+  const batchContent = `@echo off
+timeout /t 3 /nobreak >nul
+start "" "${exePath.replace(/"/g, '""')}"
+`;
+  fs.writeFileSync(batchPath, batchContent, 'utf8');
+  return new Promise((resolve) => {
+    sudo.exec(`"${batchPath}"`, { name: 'UnblockPro' }, (err) => {
+      try { fs.unlinkSync(batchPath); } catch (e) {}
+      if (err && (err.message || '').toLowerCase().includes('cancel')) {
+        resolve({ ok: false, error: 'Отклонено' });
+        return;
+      }
+      if (err) {
+        resolve({ ok: false, error: err.message || 'Ошибка' });
+        return;
+      }
+      app.isQuitting = true;
+      setTimeout(() => app.quit(), 400);
+      resolve({ ok: true });
+    });
+  });
 });
 
 ipcMain.handle('get-system-info', () => {
@@ -3294,6 +3491,7 @@ ipcMain.handle('get-system-info', () => {
       }
     }
   } catch (e) {}
+  const updateDebugLog = path.join(app.getPath('userData'), 'update-debug.txt');
   return {
     platform: process.platform,
     arch: process.arch,
@@ -3304,7 +3502,9 @@ ipcMain.handle('get-system-info', () => {
     isAdmin: isRunningAsAdmin(),
     isPortable: isPortableExe(),
     executablePath: process.execPath,
-    releasesUrl
+    releasesUrl,
+    simulateUpdateApply: process.env.UNBLOCKPRO_SIMULATE_UPDATE_APPLY === '1',
+    updateDebugLog
   };
 });
 
@@ -3313,12 +3513,16 @@ ipcMain.handle('get-settings', () => {
 });
 
 ipcMain.handle('install-update', async () => {
+  const debugLog = path.join(app.getPath('userData'), 'update-debug.txt');
+  try {
+    fs.appendFileSync(debugLog, `[${new Date().toISOString()}] install-update called, isDev=${isDev}, portable=${isPortableExe()}\n`, 'utf8');
+  } catch (e) {}
   if (isDev) {
     return { ok: false, error: 'В режиме разработки обновление недоступно' };
   }
   if (isPortableExe()) {
     const result = await runPortableUpdateApply();
-    if (!result) return { ok: false, error: 'Обновление не скачано' };
+    if (!result) return { ok: false, error: 'Обновление не скачано. Лог: ' + debugLog };
     return result;
   }
 
@@ -3443,6 +3647,21 @@ if (!gotTheLock) {
     // Setup auto-updater
     setupAutoUpdater();
     setupPortableAutoUpdater();
+
+    // Portable: удалить .bak от предыдущего обновления (rename-then-copy)
+    if (process.platform === 'win32' && isPortableExe()) {
+      try {
+        const exeDir = path.dirname(process.env.PORTABLE_EXECUTABLE_FILE || process.execPath);
+        const files = fs.readdirSync(exeDir);
+        for (const f of files) {
+          if (f.endsWith('.exe.bak')) {
+            try { fs.unlinkSync(path.join(exeDir, f)); } catch (e) {}
+          }
+        }
+      } catch (e) {}
+    }
+    // Portable: если запуск из temp, а основной exe старше — обновить основной
+    setTimeout(() => { try { syncPortableTempToOriginal(); } catch (e) {} }, 3000);
 
     // Apply saved auto-start setting
     const settings = loadSettings();
