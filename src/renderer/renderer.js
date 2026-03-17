@@ -4,6 +4,7 @@ const statusText = document.getElementById('statusText');
 const strategyText = document.getElementById('strategyText');
 const connectBtn = document.getElementById('connectBtn');
 const minimizeBtn = document.getElementById('minimizeBtn');
+const maximizeBtn = document.getElementById('maximizeBtn');
 const closeBtn = document.getElementById('closeBtn');
 const platformBadge = document.getElementById('platformBadge');
 const binaryStatus = document.getElementById('binaryStatus');
@@ -38,8 +39,9 @@ const logsCount = document.getElementById('logsCount');
 
 // Custom domains elements
 const domainsToggle = document.getElementById('domainsToggle');
-const domainsChevron = document.getElementById('domainsChevron');
 const domainsBody = document.getElementById('domainsBody');
+const domainsModal = document.getElementById('domainsModal');
+const domainsModalClose = document.getElementById('domainsModalClose');
 const includeList = document.getElementById('includeList');
 const excludeList = document.getElementById('excludeList');
 const includeInput = document.getElementById('includeInput');
@@ -55,7 +57,6 @@ let timerInterval = null;
 let connectedSinceTime = null;
 let logsOpen = false;
 let logCount = 0;
-let domainsOpen = false;
 let customIncludeDomains = [];
 let customExcludeDomains = [];
 
@@ -112,8 +113,19 @@ async function init() {
   updateBtn?.addEventListener('click', handleUpdateBtnClick);
 }
 
+function openDomainsModal() {
+  if (!domainsModal) return;
+  domainsModal.style.display = 'flex';
+}
+
+function closeDomainsModal() {
+  if (!domainsModal) return;
+  domainsModal.style.display = 'none';
+}
+
 function setupEventListeners() {
   minimizeBtn.addEventListener('click', () => window.api.minimizeWindow());
+  maximizeBtn?.addEventListener('click', () => window.api.toggleMaximizeWindow());
   closeBtn.addEventListener('click', () => window.api.closeWindow());
   connectBtn.addEventListener('click', handleConnectClick);
   
@@ -145,9 +157,7 @@ function setupEventListeners() {
   
   // Domains toggle
   domainsToggle.addEventListener('click', () => {
-    domainsOpen = !domainsOpen;
-    domainsBody.style.display = domainsOpen ? 'block' : 'none';
-    domainsChevron.classList.toggle('open', domainsOpen);
+    openDomainsModal();
   });
 
   // Domain add buttons
@@ -165,6 +175,13 @@ function setupEventListeners() {
     // Scroll to bottom when opening
     if (logsOpen) {
       logsList.scrollTop = logsList.scrollHeight;
+    }
+  });
+
+  domainsModalClose?.addEventListener('click', closeDomainsModal);
+  domainsModal?.addEventListener('click', (e) => {
+    if (e.target === domainsModal) {
+      closeDomainsModal();
     }
   });
 }
@@ -628,9 +645,7 @@ document.getElementById('tgLink')?.addEventListener('click', (e) => {
   window.api.openExternal('https://t.me/bysonicx');
 });
 
-document.getElementById('promoBtn')?.addEventListener('click', () => {
-  window.api.openExternal('https://t.me/bysonicvpn_bot');
-});
+// promoBtn (реклама SonicVPN) удалён из интерфейса
 
 // ============= Custom Domains =============
 

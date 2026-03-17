@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Run connectivity tests (YouTube, Discord API, Discord WebSocket).
+ * Run connectivity tests (YouTube, Discord API, Discord WebSocket, Telegram).
  * Run this while winws is active to verify the current strategy.
  * Usage: node scripts/run-connectivity-tests.js
  */
@@ -67,13 +67,15 @@ async function main() {
   console.log('Connectivity tests (run with winws active)\n');
   const yt = await get('https://www.youtube.com/');
   console.log('YouTube:        ', yt ? 'OK' : 'FAIL');
+  const tg = await get('https://web.telegram.org/');
+  console.log('Telegram:       ', tg ? 'OK' : 'FAIL');
   const dcApi = await get('https://discord.com/api/v10/gateway');
   console.log('Discord API:    ', dcApi ? 'OK' : 'FAIL');
   const dcWs = await testGatewayWs();
   console.log('Discord Gateway (WebSocket):', dcWs ? 'OK' : 'FAIL');
   console.log('');
-  if (yt && dcApi && dcWs) {
-    console.log('All passed — strategy is OK for Discord app + YouTube.');
+  if (yt && tg && dcApi && dcWs) {
+    console.log('All passed — strategy is OK for Discord app + YouTube + Telegram.');
   } else {
     console.log('Some tests failed — try another strategy or reconnect.');
   }

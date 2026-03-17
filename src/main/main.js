@@ -185,6 +185,16 @@ const HOST_LIST_DISCORD = [
   'router.discordapp.net'
 ].join('\n');
 
+// Telegram-only list: Telegram web/app/API endpoints
+const HOST_LIST_TELEGRAM = [
+  'telegram.org', 'core.telegram.org',
+  'web.telegram.org', 'web.telegram.org.ua',
+  'api.telegram.org',
+  't.me', 'telegram.me', 'telegram.dog',
+  'telesco.pe', 'tg.dev',
+  'cdn.telegram.org', 'static.telegram.org'
+].join('\n');
+
 // Exclude list — Russian/local services that should NOT be processed by DPI bypass
 const HOST_LIST_EXCLUDE = [
   'pusher.com', 'live-video.net', 'ttvnw.net', 'twitch.tv',
@@ -223,11 +233,12 @@ function ensureHostLists() {
   fs.writeFileSync(path.join(hostListsDir, 'list-general.txt'), generalWithCustom, 'utf8');
   fs.writeFileSync(path.join(hostListsDir, 'list-google.txt'), HOST_LIST_GOOGLE, 'utf8');
   fs.writeFileSync(path.join(hostListsDir, 'list-discord.txt'), HOST_LIST_DISCORD, 'utf8');
+  fs.writeFileSync(path.join(hostListsDir, 'list-telegram.txt'), HOST_LIST_TELEGRAM, 'utf8');
   fs.writeFileSync(path.join(hostListsDir, 'list-exclude.txt'), excludeWithCustom, 'utf8');
   fs.writeFileSync(path.join(hostListsDir, 'ipset-exclude.txt'), IPSET_EXCLUDE, 'utf8');
   fs.writeFileSync(path.join(hostListsDir, 'ipset-all.txt'), IPSET_ALL, 'utf8');
 
-  const HOST_LIST_ALL = generalWithCustom + '\n' + HOST_LIST_GOOGLE + '\n' + HOST_LIST_DISCORD;
+  const HOST_LIST_ALL = generalWithCustom + '\n' + HOST_LIST_GOOGLE + '\n' + HOST_LIST_DISCORD + '\n' + HOST_LIST_TELEGRAM;
   fs.writeFileSync(path.join(hostListsDir, 'list-all.txt'), HOST_LIST_ALL, 'utf8');
 
   return hostListsDir;
@@ -2530,12 +2541,13 @@ function createWindow() {
 
   mainWindow = new BrowserWindow({
     width: 420,
-    height: 560,
+    height: 700,
     minWidth: 380,
-    minHeight: 480,
+    minHeight: 640,
     frame: false,
     transparent: true,
     resizable: true,
+    maximizable: true,
     show: false,
     icon: windowIcon,
     webPreferences: {
@@ -2695,7 +2707,16 @@ ipcMain.handle('clear-error', () => {
 });
 
 ipcMain.handle('minimize-window', () => mainWindow.minimize());
-ipcMain.handle('close-window', () => mainWindow.hide());
+ipcMain.handle('close-window', () => {
+  app.isQuitting = true;
+  stopProxy();
+  app.quit();
+});
+ipcMain.handle('toggle-maximize-window', () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMaximized()) mainWindow.unmaximize();
+  else mainWindow.maximize();
+});
 
 ipcMain.handle('open-external', (event, url) => {
   const { shell } = require('electron');

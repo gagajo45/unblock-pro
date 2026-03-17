@@ -41,6 +41,8 @@ const TEST_URLS = {
   discordMedia:'https://media.discordapp.net/',
   youtube:     'https://www.youtube.com/',
   youtubeImg:  'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
+  telegramWeb: 'https://web.telegram.org/',
+  telegramApi: 'https://api.telegram.org/',
 };
 
 // ============= LOGGING =============
@@ -649,14 +651,24 @@ async function stageStrategies(winwsPath, strategies) {
     }
 
     const t0 = Date.now();
-    const [dcApi, dcCdn, yt] = await Promise.all([
+    const [dcApi, dcCdn, yt, tgWeb, tgApi] = await Promise.all([
       curlTest(TEST_URLS.discordApi),
       curlTest(TEST_URLS.discordCdn),
       curlTest(TEST_URLS.youtube),
+      curlTest(TEST_URLS.telegramWeb),
+      curlTest(TEST_URLS.telegramApi),
     ]);
     const totalMs = Date.now() - t0;
 
-    const r = { name: s.name, dcApi: dcApi.ok, dcCdn: dcCdn.ok, yt: yt.ok, ms: totalMs };
+    const r = {
+      name: s.name,
+      dcApi: dcApi.ok,
+      dcCdn: dcCdn.ok,
+      yt: yt.ok,
+      tgWeb: tgWeb.ok,
+      tgApi: tgApi.ok,
+      ms: totalMs
+    };
     results.push(r);
 
     const dcApiS = dcApi.ok ? 'PASS' : 'FAIL';
@@ -664,7 +676,9 @@ async function stageStrategies(winwsPath, strategies) {
     const ytS = yt.ok ? 'PASS' : 'FAIL';
     const timeS = `${(totalMs / 1000).toFixed(1)}s`;
 
-    log(`${idx}  ${s.name.padEnd(30)} ${dcApiS.padEnd(10)} ${dcCdnS.padEnd(10)} ${ytS.padEnd(10)} ${timeS}`);
+    const tgS = (tgWeb.ok && tgApi.ok) ? 'PASS' : 'FAIL';
+
+    log(`${idx}  ${s.name.padEnd(30)} ${dcApiS.padEnd(10)} ${dcCdnS.padEnd(10)} ${ytS.padEnd(10)} ${tgS.padEnd(10)} ${timeS}`);
 
     try { proc.kill(); } catch (e) {}
   }

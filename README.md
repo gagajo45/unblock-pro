@@ -7,10 +7,15 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/by-sonic/unblock-pro/releases/latest"><img src="https://img.shields.io/github/v/release/by-sonic/unblock-pro?style=for-the-badge&color=blue&label=version" alt="Version"></a>
-  <a href="https://github.com/by-sonic/unblock-pro/releases/latest"><img src="https://img.shields.io/github/downloads/by-sonic/unblock-pro/total?style=for-the-badge&color=green&label=downloads" alt="Downloads"></a>
-  <a href="https://github.com/by-sonic/unblock-pro/blob/main/LICENSE"><img src="https://img.shields.io/github/license/by-sonic/unblock-pro?style=for-the-badge&color=purple" alt="License"></a>
+  <!-- Бейджи этого форка -->
+  <a href="https://github.com/gagajo45/unblock-pro/releases/latest"><img src="https://img.shields.io/github/v/release/gagajo45/unblock-pro?style=for-the-badge&color=blue&label=version" alt="Version"></a>
+  <a href="https://github.com/gagajo45/unblock-pro/releases/latest"><img src="https://img.shields.io/github/downloads/gagajo45/unblock-pro/total?style=for-the-badge&color=green&label=downloads" alt="Downloads"></a>
+  <a href="https://github.com/gagajo45/unblock-pro/blob/main/LICENSE"><img src="https://img.shields.io/github/license/gagajo45/unblock-pro?style=for-the-badge&color=purple" alt="License"></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-blue?style=for-the-badge" alt="Platform">
+</p>
+
+<p align="center">
+  <sub>Форк оригинального проекта <a href="https://github.com/by-sonic/unblock-pro">by-sonic/unblock-pro</a> с попыткой аккуратно следить за апстримом и выпускать свои сборки.</sub>
 </p>
 
 ---
@@ -19,12 +24,12 @@
 
 | Платформа | Файл | Описание |
 |-----------|------|----------|
-| **macOS** Apple Silicon (M1/M2/M3/M4) | [UnblockPro-mac-arm64.zip](https://github.com/by-sonic/unblock-pro/releases/latest) | Для Mac с M-процессором |
-| **macOS** Intel | [UnblockPro-mac-x64.zip](https://github.com/by-sonic/unblock-pro/releases/latest) | Для Mac с Intel |
-| **Windows** | [UnblockPro-win-setup.exe](https://github.com/by-sonic/unblock-pro/releases/latest) | Установщик |
-| **Windows** | [UnblockPro-win-portable.exe](https://github.com/by-sonic/unblock-pro/releases/latest) | Портативная версия (без установки) |
+| **macOS** Apple Silicon (M1/M2/M3/M4) | [UnblockPro-mac-arm64.zip](https://github.com/gagajo45/unblock-pro/releases/latest) | Для Mac с M-процессором |
+| **macOS** Intel | [UnblockPro-mac-x64.zip](https://github.com/gagajo45/unblock-pro/releases/latest) | Для Mac с Intel |
+| **Windows** | [UnblockPro-win-setup.exe](https://github.com/gagajo45/unblock-pro/releases/latest) | Установщик |
+| **Windows** | [UnblockPro-win-portable.exe](https://github.com/gagajo45/unblock-pro/releases/latest) | Портативная версия (без установки) |
 
-> Перейдите в [Releases](https://github.com/by-sonic/unblock-pro/releases/latest) и скачайте версию для вашей ОС
+> Перейдите в [Releases](https://github.com/gagajo45/unblock-pro/releases/latest) и скачайте версию для вашей ОС
 
 ---
 
@@ -131,8 +136,8 @@ xattr -cr /Applications/UnblockPro.app
 ## Разработка
 
 ```bash
-# Клонировать репозиторий
-git clone https://github.com/by-sonic/unblock-pro.git
+# Клонировать этот форк
+git clone https://github.com/gagajo45/unblock-pro.git
 cd unblock-pro
 
 # Установить зависимости
@@ -150,6 +155,15 @@ npm run build:mac
 # Собрать для Windows
 npm run build:win
 ```
+
+> Оригинальный репозиторий: https://github.com/by-sonic/unblock-pro  
+> В локальном git он добавлен как `upstream`, поэтому можно подтягивать обновления:
+>
+> ```bash
+> git remote -v
+> git fetch upstream
+> git merge upstream/main   # или upstream/master, если изменится основная ветка
+> ```
 
 ---
 
@@ -169,8 +183,8 @@ npm run build:win
 ---
 
 <p align="center">
-  <strong>by sonic</strong><br>
-  <sub>Если проект помог — поставь ⭐️</sub>
+  <strong>by sonic (upstream)</strong><br>
+  <sub>Форк и сборки: <a href="https://github.com/gagajo45/unblock-pro">gagajo45/unblock-pro</a></sub>
 </p>
 
 ---

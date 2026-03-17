@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('api', {
   
   // Window controls
   minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
+  toggleMaximizeWindow: () => ipcRenderer.invoke('toggle-maximize-window'),
   closeWindow: () => ipcRenderer.invoke('close-window'),
   
   // System info

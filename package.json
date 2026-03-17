@@ -26,9 +26,13 @@
     "discord-unblock",
     "youtube-unblock"
   ],
-  "author": "sonic",
+  "author": "sonic (original), gagajo45 (fork)",
   "license": "MIT",
   "repository": {
+    "type": "git",
+    "url": "https://github.com/gagajo45/unblock-pro"
+  },
+  "upstreamRepository": {
     "type": "git",
     "url": "https://github.com/by-sonic/unblock-pro"
   },
@@ -102,6 +106,8 @@
     },
     "publish": {
       "provider": "github",
+      "owner": "gagajo45",
+      "repo": "unblock-pro",
       "releaseType": "release"
     }
   }

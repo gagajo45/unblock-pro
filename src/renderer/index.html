@@ -21,6 +21,11 @@
             <rect y="5" width="12" height="2" fill="currentColor"/>
           </svg>
         </button>
+        <button class="window-btn maximize" id="maximizeBtn" title="Развернуть">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <rect x="2" y="2" width="8" height="8" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </button>
         <button class="window-btn close" id="closeBtn" title="Закрыть">
           <svg width="12" height="12" viewBox="0 0 12 12">
             <path d="M1 1L11 11M11 1L1 11" stroke="currentColor" stroke-width="2"/>
@@ -38,36 +43,6 @@
         <span id="updateText">Обновление доступно</span>
       </div>
       <button type="button" class="update-btn" id="updateBtn" title="Перезапустить для установки">Установить</button>
-    </div>
-
-    <!-- SonicVPN promo (сверху — видят все) -->
-    <div class="promo-card" id="promoCard">
-      <div class="promo-badge">Рекомендуем</div>
-      <div class="promo-content">
-        <div class="promo-icon">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-            <path d="M12 2L3 7v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-9-5z" stroke="url(#promoGrad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M9 12l2 2 4-4" stroke="url(#promoGrad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <defs>
-              <linearGradient id="promoGrad" x1="3" y1="2" x2="21" y2="22" gradientUnits="userSpaceOnUse">
-                <stop stop-color="#3b82f6"/>
-                <stop offset="1" stop-color="#06b6d4"/>
-              </linearGradient>
-            </defs>
-          </svg>
-        </div>
-        <div class="promo-text">
-          <div class="promo-title">SonicVPN</div>
-          <div class="promo-desc">Полная защита трафика с шифрованием. UnblockPro обходит блокировки, а VPN — шифрует всё соединение.</div>
-        </div>
-      </div>
-      <button type="button" class="promo-btn" id="promoBtn">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-          <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" stroke-width="2"/>
-          <path d="M10 8l6 4-6 4V8z" fill="currentColor"/>
-        </svg>
-        Попробовать бесплатно
-      </button>
     </div>
 
     <!-- Main content -->
@@ -204,11 +179,73 @@
             </svg>
             <span>Свои домены</span>
           </div>
-          <svg class="domains-chevron" id="domainsChevron" width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <span class="domains-open-label">Открыть</span>
+        </button>
+        <div class="domains-body" id="domainsBody">
+          <div class="domains-body-text">
+            Управление списками доменов открывается в отдельном окне. Нажмите, чтобы изменить правила разблокировки и исключения.
+          </div>
+        </div>
+      </div>
+
+      <!-- Logs panel -->
+      <div class="logs-card" id="logsCard">
+        <button class="logs-header" id="logsToggle">
+          <div class="logs-header-left">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M14 2v6h6M16 13H8m8 4H8m2-8H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>Журнал</span>
+            <span class="logs-count" id="logsCount">0</span>
+          </div>
+          <svg class="logs-chevron" id="logsChevron" width="16" height="16" viewBox="0 0 24 24" fill="none">
             <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
-        <div class="domains-body" id="domainsBody" style="display: none;">
+        <div class="logs-body" id="logsBody" style="display: none;">
+          <div class="logs-list" id="logsList"></div>
+        </div>
+      </div>
+
+      <!-- Info card -->
+      <div class="info-card">
+        <div class="info-header">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" stroke="currentColor" stroke-width="2"/>
+            <path d="M12 16V12M12 8H12.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <span>Как это работает</span>
+        </div>
+        <div class="info-text">
+          Приложение автоматически находит рабочую стратегию обхода DPI для вашего провайдера и разблокирует Discord, YouTube и другие сервисы. Все работает локально, без VPN-серверов.
+        </div>
+        <div class="info-actions">
+          <button type="button" class="link-btn" id="updateHostsBtn" title="Обновляет hosts для Discord голоса (нужны права админа)">
+            Обновить hosts (Discord голос)
+          </button>
+          <button type="button" class="link-btn" id="clearDiscordCacheBtn" title="Очистить кэш Discord">
+            Очистить кэш Discord
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Domains modal -->
+    <div class="modal-backdrop" id="domainsModal" style="display: none;">
+      <div class="modal" id="domainsModalContent">
+        <div class="modal-header">
+          <div class="modal-title">
+            Свои домены
+          </div>
+          <button class="modal-close" id="domainsModalClose" title="Закрыть">
+            <svg width="14" height="14" viewBox="0 0 14 14">
+              <path d="M1 1L13 13M13 1L1 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body domains-modal-body">
           <!-- Include domains -->
           <div class="domain-section">
             <div class="domain-section-header">
@@ -260,49 +297,6 @@
           </div>
         </div>
       </div>
-
-      <!-- Logs panel -->
-      <div class="logs-card" id="logsCard">
-        <button class="logs-header" id="logsToggle">
-          <div class="logs-header-left">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M14 2v6h6M16 13H8m8 4H8m2-8H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            <span>Журнал</span>
-            <span class="logs-count" id="logsCount">0</span>
-          </div>
-          <svg class="logs-chevron" id="logsChevron" width="16" height="16" viewBox="0 0 24 24" fill="none">
-            <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-        <div class="logs-body" id="logsBody" style="display: none;">
-          <div class="logs-list" id="logsList"></div>
-        </div>
-      </div>
-
-      <!-- Info card -->
-      <div class="info-card">
-        <div class="info-header">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-            <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" stroke="currentColor" stroke-width="2"/>
-            <path d="M12 16V12M12 8H12.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          </svg>
-          <span>Как это работает</span>
-        </div>
-        <div class="info-text">
-          Приложение автоматически находит рабочую стратегию обхода DPI для вашего провайдера и разблокирует Discord, YouTube и другие сервисы. Все работает локально, без VPN-серверов.
-        </div>
-        <div class="info-actions">
-          <button type="button" class="link-btn" id="updateHostsBtn" title="Обновляет hosts для Discord голоса (нужны права админа)">
-            Обновить hosts (Discord голос)
-          </button>
-          <button type="button" class="link-btn" id="clearDiscordCacheBtn" title="Очистить кэш Discord">
-            Очистить кэш Discord
-          </button>
-        </div>
-      </div>
-
     </div>
 
     <!-- Footer -->
@@ -311,7 +305,10 @@
         <span class="platform-badge" id="platformBadge">--</span>
         <span class="version" id="versionText">v1.1.0</span>
       </div>
-      <span class="credit">by sonic · <a href="#" id="tgLink" class="tg-link">Telegram</a></span>
+      <span class="credit">
+        original by sonic · fork by gagajo45 ·
+        <a href="#" id="tgLink" class="tg-link">Telegram</a>
+      </span>
       <div class="binary-status" id="binaryStatus">
         <span class="binary-dot"></span>
         <span class="binary-text">Проверка...</span>

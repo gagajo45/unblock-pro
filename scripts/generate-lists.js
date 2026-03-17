@@ -45,6 +45,15 @@ const HOST_LIST_DISCORD = [
   'router.discordapp.net'
 ].join('\n');
 
+const HOST_LIST_TELEGRAM = [
+  'telegram.org', 'core.telegram.org',
+  'web.telegram.org', 'web.telegram.org.ua',
+  'api.telegram.org',
+  't.me', 'telegram.me', 'telegram.dog',
+  'telesco.pe', 'tg.dev',
+  'cdn.telegram.org', 'static.telegram.org'
+].join('\n');
+
 const HOST_LIST_EXCLUDE = [
   'pusher.com', 'live-video.net', 'ttvnw.net', 'twitch.tv',
   'mail.ru', 'citilink.ru', 'yandex.com', 'nvidia.com', 'donationalerts.com',
@@ -65,11 +74,12 @@ const IPSET_ALL = '203.0.113.113/32';
 fs.writeFileSync(path.join(listsDir, 'list-general.txt'), HOST_LIST_GENERAL, 'utf8');
 fs.writeFileSync(path.join(listsDir, 'list-google.txt'), HOST_LIST_GOOGLE, 'utf8');
 fs.writeFileSync(path.join(listsDir, 'list-discord.txt'), HOST_LIST_DISCORD, 'utf8');
+fs.writeFileSync(path.join(listsDir, 'list-telegram.txt'), HOST_LIST_TELEGRAM, 'utf8');
 fs.writeFileSync(path.join(listsDir, 'list-exclude.txt'), HOST_LIST_EXCLUDE, 'utf8');
 fs.writeFileSync(path.join(listsDir, 'ipset-exclude.txt'), IPSET_EXCLUDE, 'utf8');
 fs.writeFileSync(path.join(listsDir, 'ipset-all.txt'), IPSET_ALL, 'utf8');
 
-const all = HOST_LIST_GENERAL + '\n' + HOST_LIST_GOOGLE + '\n' + HOST_LIST_DISCORD;
+const all = HOST_LIST_GENERAL + '\n' + HOST_LIST_GOOGLE + '\n' + HOST_LIST_DISCORD + '\n' + HOST_LIST_TELEGRAM;
 fs.writeFileSync(path.join(listsDir, 'list-all.txt'), all, 'utf8');
 
 console.log('Lists generated in', listsDir);
