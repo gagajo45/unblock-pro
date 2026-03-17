@@ -1,16 +1,19 @@
 {
   "name": "unblock-pro",
-  "version": "2.0.20",
+  "version": "2.0.22",
   "versionSonic": "2.0.15",
   "description": "Обход блокировок Discord, YouTube и Telegram в России — автоматический DPI bypass для macOS и Windows",
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
+    "start:simulate-update": "cross-env UNBLOCKPRO_SIMULATE_UPDATE=1 electron .",
     "build": "node scripts/run-build.js",
     "build:mac": "node scripts/run-build.js --mac",
     "build:win": "node scripts/run-build.js --win",
     "build:all": "node scripts/run-build.js --mac --win",
-    "download-binaries": "node scripts/download-binaries.js"
+    "download-binaries": "node scripts/download-binaries.js",
+    "portable:test-replace": "powershell -ExecutionPolicy Bypass -File scripts/run-portable-test.ps1",
+    "portable:test-update": "powershell -ExecutionPolicy Bypass -File scripts/test-portable-update.ps1"
   },
   "keywords": [
     "discord",
@@ -40,6 +43,7 @@
     "url": "https://github.com/by-sonic/unblock-pro"
   },
   "devDependencies": {
+    "cross-env": "^7.0.3",
     "electron": "^28.1.0",
     "electron-builder": "^26.7.0"
   },
