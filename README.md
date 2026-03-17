@@ -1,4 +1,4 @@
-﻿# UnblockPro — Обход блокировок Discord, YouTube и Telegram
+# UnblockPro — Обход блокировок Discord, YouTube и Telegram
 
 
 <p align="center">
