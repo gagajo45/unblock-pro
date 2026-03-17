@@ -1,4 +1,4 @@
-# UnblockPro — Обход блокировок Discord, YouTube и Telegram
+﻿# UnblockPro — Обход блокировок Discord, YouTube и Telegram
 
 
 <p align="center">
@@ -143,6 +143,9 @@ cd unblock-pro
 # Установить зависимости
 npm install
 
+# Скачать бинарники zapret (tpws/winws) — нужны для работы
+npm run download-binaries
+
 # Запустить в режиме разработки
 npm start
 
@@ -156,14 +159,20 @@ npm run build:mac
 npm run build:win
 ```
 
-> Оригинальный репозиторий: https://github.com/by-sonic/unblock-pro  
-> В локальном git он добавлен как `upstream`, поэтому можно подтягивать обновления:
->
-> ```bash
-> git remote -v
-> git fetch upstream
-> git merge upstream/main   # или upstream/master, если изменится основная ветка
-> ```
+### Подтянуть обновления от sonic (upstream)
+
+Оригинал: https://github.com/by-sonic/unblock-pro
+
+```bash
+# Один раз добавить upstream (если ещё нет)
+git remote add upstream https://github.com/by-sonic/unblock-pro.git
+
+# Подтянуть и смержить
+git fetch upstream
+git merge upstream/main   # или upstream/master
+```
+
+**После мержа:** обнови `versionSonic` в `package.json` — поставь версию из upstream (см. их `package.json`). Наша версия (`version`) остаётся своей, `versionSonic` — база sonic.
 
 ---
 
@@ -184,7 +193,7 @@ npm run build:win
 
 <p align="center">
   <strong>Fork by gagajo45</strong> · original by sonic (upstream)<br>
-  <sub><a href="https://github.com/gagajo45/unblock-pro">gagajo45/unblock-pro</a> · v2.0.17</sub>
+  <sub><a href="https://github.com/gagajo45/unblock-pro">gagajo45/unblock-pro</a> \u00b7 v2.0.20</sub>
 </p>
 
 ---
