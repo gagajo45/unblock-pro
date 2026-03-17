@@ -183,8 +183,8 @@ npm run build:win
 ---
 
 <p align="center">
-  <strong>by sonic (upstream)</strong><br>
-  <sub>Форк и сборки: <a href="https://github.com/gagajo45/unblock-pro">gagajo45/unblock-pro</a></sub>
+  <strong>Fork by gagajo45</strong> · original by sonic (upstream)<br>
+  <sub><a href="https://github.com/gagajo45/unblock-pro">gagajo45/unblock-pro</a> · v2.0.17</sub>
 </p>
 
 ---

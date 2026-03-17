@@ -68,7 +68,7 @@ git push -u origin main
 В файле **`package.json`** в начале измени строку `"version"`:
 
 - Было: `"version": "2.0.15"`
-- Стало: `"version": "2.0.16"` (или 2.0.17, 2.1.0 — как захочешь).
+- Стало: `"version": "2.0.17"` (или 2.0.18, 2.1.0 — как захочешь).
 
 Сохрани файл.
 
@@ -81,16 +81,16 @@ npm run build:win
 ```
 
 Готовые файлы появятся в папке **`dist`**:
-- `UnblockPro-2.0.16-win-setup.exe`
-- `UnblockPro-2.0.16-win-portable.exe`
+- `UnblockPro-sonic2.0.15-v2.0.17-win-setup.exe`
+- `UnblockPro-sonic2.0.15-v2.0.17-win-portable.exe`
 
-(подставь свою версию вместо 2.0.16).
+(подставь свою версию вместо 2.0.17).
 
 ### Шаг 3: Закоммитить и запушить
 
 ```powershell
 git add .
-git commit -m "v2.0.16"
+git commit -m "v2.0.17"
 git push origin main
 ```
 
@@ -98,15 +98,15 @@ git push origin main
 
 1. Открой в браузере: https://github.com/gagajo45/unblock-pro  
 2. Вкладка **Releases** → кнопка **Create a new release**.  
-3. **Choose a tag** → нажми **Find or create a new tag**, введи версию **без буквы v**, например: `2.0.16` → Create new tag.  
-4. **Release title** можно сделать таким: `v2.0.16`.  
+3. **Choose a tag** → нажми **Find or create a new tag**, введи версию **без буквы v**, например: `2.0.17` → Create new tag.  
+4. **Release title** можно сделать таким: `v2.0.17`.  
 5. В описание можно написать кратко, что изменилось.  
 6. В блок **Attach binaries** перетащи файлы из папки `dist`:
-   - `UnblockPro-2.0.16-win-setup.exe`
-   - `UnblockPro-2.0.16-win-portable.exe`
+   - `UnblockPro-sonic2.0.15-v2.0.17-win-setup.exe`
+   - `UnblockPro-sonic2.0.15-v2.0.17-win-portable.exe`
 7. Нажми **Publish release**.
 
-После этого приложение (если у пользователя стоит версия ниже 2.0.16) сможет предложить обновление с твоего GitHub.
+После этого приложение (если у пользователя стоит версия ниже 2.0.17) сможет предложить обновление с твоего GitHub.
 
 ---
 

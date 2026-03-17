@@ -213,7 +213,7 @@ jobs:
             ```
             
             ---
-            original by sonic · fork by gagajo45
+            fork by gagajo45 · original by sonic (upstream)
           draft: false
           prerelease: false
           files: |

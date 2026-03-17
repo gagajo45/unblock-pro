@@ -29,7 +29,7 @@
     "youtube-unblock",
     "telegram-unblock"
   ],
-  "author": "sonic (original), gagajo45 (fork)",
+  "author": "gagajo45 (fork), sonic (original)",
   "license": "MIT",
   "repository": {
     "type": "git",
