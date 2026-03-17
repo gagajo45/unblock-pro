@@ -56,6 +56,30 @@ body {
   border: 1px solid var(--border-color);
 }
 
+/* Admin warning banner (Windows without admin) */
+.admin-warning-banner {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.15), rgba(245, 158, 11, 0.1));
+  border-bottom: 1px solid rgba(239, 68, 68, 0.25);
+  flex-shrink: 0;
+}
+
+.admin-warning-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--accent-red);
+  line-height: 1.45;
+}
+
+.admin-warning-info svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
 /* Update banner */
 .update-banner {
   display: flex;
@@ -167,11 +191,12 @@ body {
 /* Main content */
 .main-content {
   flex: 1;
+  min-height: 0;
   padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  overflow-y: scroll;
+  overflow-y: auto;
   scrollbar-gutter: stable both-edges;
 }
 
@@ -380,6 +405,12 @@ body {
   background: rgba(255, 0, 0, 0.1);
   color: #FF0000;
   border: 1px solid rgba(255, 0, 0, 0.15);
+}
+
+.service-badge.telegram {
+  background: rgba(0, 136, 204, 0.15);
+  color: #0088cc;
+  border: 1px solid rgba(0, 136, 204, 0.25);
 }
 
 /* Strategy progress */
@@ -592,7 +623,14 @@ body {
   left: 100%;
 }
 
-.connect-btn:hover {
+.connect-btn:disabled,
+.connect-btn.disabled-no-admin {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.connect-btn:hover:not(:disabled):not(.disabled-no-admin) {
   transform: translateY(-2px);
   box-shadow: 0 6px 20px var(--accent-blue-glow);
 }
@@ -638,6 +676,7 @@ body {
   border-radius: var(--border-radius);
   padding: 4px 16px;
   border: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 
 .setting-row {
@@ -760,6 +799,8 @@ body {
   border-radius: var(--border-radius);
   border: 1px solid var(--border-color);
   overflow: hidden;
+  flex-shrink: 0;
+  min-height: 72px;
 }
 
 .domains-header {
@@ -773,6 +814,8 @@ body {
   color: var(--text-primary);
   cursor: pointer;
   transition: background var(--transition-fast);
+  flex-shrink: 0;
+  min-height: 44px;
 }
 
 .domains-header:hover {
@@ -804,6 +847,9 @@ body {
 .domains-body-text {
   font-size: 11px;
   color: var(--text-muted);
+  line-height: 1.4;
+  white-space: normal;
+  word-wrap: break-word;
 }
 
 .domain-section {
@@ -984,6 +1030,8 @@ body {
   border-radius: var(--border-radius);
   border: 1px solid var(--border-color);
   overflow: hidden;
+  flex-shrink: 0;
+  min-height: 52px;
 }
 
 .logs-header {
@@ -1057,7 +1105,8 @@ body {
 
 .modal {
   width: 420px;
-  max-width: 90vw;
+  min-width: 300px;
+  max-width: calc(100vw - 32px);
   max-height: 80vh;
   background: var(--bg-secondary);
   border-radius: var(--border-radius);
@@ -1161,6 +1210,7 @@ body {
   border-radius: var(--border-radius);
   padding: 16px;
   border: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 
 .info-header {
@@ -1303,42 +1353,59 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  background: rgba(0, 0, 0, 0.3);
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 10px 16px;
+  background: rgba(0, 0, 0, 0.25);
   border-top: 1px solid var(--border-color);
 }
 
-.system-info {
+.footer-left,
+.footer-right {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
 .platform-badge {
-  padding: 4px 8px;
-  border-radius: 4px;
+  padding: 3px 6px;
+  border-radius: 3px;
   background: var(--bg-tertiary);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
-.version {
-  font-size: 12px;
+.version-dual {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  font-size: 11px;
+}
+
+.version-fork {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.version-sonic {
   color: var(--text-muted);
+  font-size: 10px;
+}
+
+.version-part {
+  white-space: nowrap;
 }
 
 .credit {
   font-size: 11px;
-  color: var(--text-muted);
-  font-style: italic;
 }
 
 .tg-link {
-  color: #29b6f6;
+  color: var(--accent-blue);
   text-decoration: none;
-  font-style: normal;
   cursor: pointer;
   transition: color 0.2s;
 }
@@ -1351,9 +1418,9 @@ body {
 .binary-status {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-secondary);
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 .binary-dot {

@@ -45,13 +45,30 @@ const HOST_LIST_DISCORD = [
   'router.discordapp.net'
 ].join('\n');
 
+// Telegram: web (browser) + desktop app — kws*/zws* WebSocket, pluto/venus/aurora/vesta/flora DC
 const HOST_LIST_TELEGRAM = [
-  'telegram.org', 'core.telegram.org',
-  'web.telegram.org', 'web.telegram.org.ua',
-  'api.telegram.org',
-  't.me', 'telegram.me', 'telegram.dog',
+  'telegram.org', 'core.telegram.org', 'api.telegram.org',
+  't.me', 'telegram.me', 'telegram.dog', 'telegram.space',
   'telesco.pe', 'tg.dev',
-  'cdn.telegram.org', 'static.telegram.org'
+  'cdn.telegram.org', 'static.telegram.org', 'td.telegram.org',
+  'desktop.telegram.org', 'gatewayapi.telegram.org',
+  'web.telegram.org', 'web.telegram.org.ua',
+  'kws1.web.telegram.org', 'kws1-1.web.telegram.org',
+  'kws2.web.telegram.org', 'kws2-1.web.telegram.org',
+  'kws3.web.telegram.org', 'kws3-1.web.telegram.org',
+  'kws4.web.telegram.org', 'kws4-1.web.telegram.org',
+  'kws5.web.telegram.org', 'kws5-1.web.telegram.org',
+  'kws6.web.telegram.org', 'kws6-1.web.telegram.org',
+  'zws1.web.telegram.org', 'zws1-1.web.telegram.org',
+  'zws2.web.telegram.org', 'zws2-1.web.telegram.org',
+  'zws3.web.telegram.org', 'zws3-1.web.telegram.org',
+  'zws4.web.telegram.org', 'zws4-1.web.telegram.org',
+  'zws5.web.telegram.org', 'zws5-1.web.telegram.org',
+  'pluto.web.telegram.org', 'pluto-1.web.telegram.org',
+  'venus.web.telegram.org', 'venus-1.web.telegram.org',
+  'aurora.web.telegram.org', 'aurora-1.web.telegram.org',
+  'vesta.web.telegram.org', 'vesta-1.web.telegram.org',
+  'flora.web.telegram.org', 'flora-1.web.telegram.org'
 ].join('\n');
 
 const HOST_LIST_EXCLUDE = [

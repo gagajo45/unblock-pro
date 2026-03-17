@@ -64,6 +64,10 @@ let customExcludeDomains = [];
 const updateBanner = document.getElementById('updateBanner');
 const updateText = document.getElementById('updateText');
 const updateBtn = document.getElementById('updateBtn');
+const adminWarningBanner = document.getElementById('adminWarningBanner');
+
+// Windows: running without admin (portable exe) — connect disabled
+let noAdminMode = false;
 
 // Error code to user-friendly title mapping
 const ERROR_TITLES = {
@@ -198,10 +202,25 @@ async function loadSystemInfo() {
     
     platformBadge.textContent = platformNames[info.platform] || info.platform;
     
-    const versionEl = document.getElementById('versionText');
-    if (versionEl && info.version) versionEl.textContent = `v${info.version}`;
+    const versionSonicEl = document.getElementById('versionSonicText');
+    const versionForkEl = document.getElementById('versionForkText');
+    if (versionForkEl && info.version != null) versionForkEl.textContent = `v${info.version}`;
+    if (versionSonicEl && info.versionSonic != null) versionSonicEl.textContent = `· sonic ${info.versionSonic}`;
     
     updateBinaryStatus(info.binaryExists);
+
+    // Windows: show warning and disable connect if running without admin
+    if (info.platform === 'win32' && info.isAdmin === false) {
+      noAdminMode = true;
+      if (adminWarningBanner) {
+        adminWarningBanner.style.display = 'flex';
+      }
+      if (connectBtn) {
+        connectBtn.disabled = true;
+        connectBtn.title = 'Запустите приложение от имени администратора';
+        connectBtn.classList.add('disabled-no-admin');
+      }
+    }
   } catch (error) {
     // silently handle
   }
@@ -522,6 +541,7 @@ function handleDownloadProgress(progress) {
 // ============= Connect/Disconnect =============
 
 async function handleConnectClick() {
+  if (noAdminMode) return;
   if (isConnecting || isDownloading) return;
   
   if (isConnected) {

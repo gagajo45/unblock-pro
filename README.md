@@ -1,9 +1,9 @@
-# UnblockPro — Обход блокировок Discord и YouTube
+# UnblockPro — Обход блокировок Discord, YouTube и Telegram
 
 
 <p align="center">
   <strong>Автоматический DPI bypass для macOS и Windows</strong><br>
-  Разблокируй Discord, YouTube и другие сервисы в один клик
+  Разблокируй Discord, YouTube, Telegram и другие сервисы в один клик
 </p>
 
 <p align="center">
@@ -35,7 +35,7 @@
 
 ## Что это?
 
-**UnblockPro** — десктопное приложение для обхода DPI-блокировок, которое позволяет пользоваться Discord, YouTube и другими сервисами без VPN. Работает на macOS и Windows.
+**UnblockPro** — десктопное приложение для обхода DPI-блокировок, которое позволяет пользоваться Discord, YouTube, Telegram и другими сервисами без VPN. Работает на macOS и Windows.
 
 ### Ключевые возможности
 
@@ -67,7 +67,7 @@ UnblockPro использует технологию [zapret](https://github.com
 
 ### macOS
 
-1. Скачайте `UnblockPro-*-mac.zip` из [Releases](https://github.com/by-sonic/unblock-pro/releases/latest)
+1. Скачайте `UnblockPro-*-mac.zip` из [Releases](https://github.com/gagajo45/unblock-pro/releases/latest)
 2. Распакуйте ZIP и перетащите `UnblockPro.app` в папку «Программы»
 3. **Откройте Терминал** и выполните команду:
 
@@ -81,7 +81,7 @@ xattr -cr /Applications/UnblockPro.app
 
 ### Windows
 
-1. Скачайте установщик или портативную версию из [Releases](https://github.com/by-sonic/unblock-pro/releases/latest)
+1. Скачайте установщик или портативную версию из [Releases](https://github.com/gagajo45/unblock-pro/releases/latest)
 2. Запустите от имени администратора
 3. Нажмите «Подключить»
 
@@ -92,7 +92,7 @@ xattr -cr /Applications/UnblockPro.app
 ## Скриншоты
 
 <p align="center">
-  <em>Главный экран — статус подключения, управление в один клик</em>
+  <em>Главный экран — Discord, YouTube, Telegram. Статус подключения, управление в один клик</em>
 </p>
 
 ---
@@ -101,7 +101,7 @@ xattr -cr /Applications/UnblockPro.app
 
 <details>
 <summary><strong>Это VPN?</strong></summary>
-Нет. UnblockPro не шифрует трафик и не маршрутизирует его через удалённый сервер. Он модифицирует сетевые пакеты локально, чтобы DPI-системы провайдера не могли распознать и заблокировать запросы к Discord/YouTube.
+Нет. UnblockPro не шифрует трафик и не маршрутизирует его через удалённый сервер. Он модифицирует сетевые пакеты локально, чтобы DPI-системы провайдера не могли распознать и заблокировать запросы к Discord, YouTube, Telegram и другим сервисам.
 </details>
 
 <details>
@@ -115,7 +115,7 @@ xattr -cr /Applications/UnblockPro.app
 </details>
 
 <details>
-<summary><strong>Discord/YouTube всё ещё не работает</strong></summary>
+<summary><strong>Discord/YouTube/Telegram всё ещё не работает</strong></summary>
 Попробуйте отключиться и подключиться заново — приложение переберёт другие стратегии. Если ни одна не помогла, возможно, ваш провайдер использует продвинутый DPI — создайте Issue.
 </details>
 
@@ -191,4 +191,4 @@ npm run build:win
 
 ### Ключевые слова / Keywords
 
-> discord разблокировка, youtube разблокировка, обход блокировки discord, обход блокировки youtube, dpi bypass, антиблокировка, разблокировать дискорд, discord россия, youtube россия, zapret gui, обход dpi, discord unblock russia, youtube unblock russia, anti dpi, bypass discord block, unblock discord, unblock youtube
+> discord разблокировка, youtube разблокировка, telegram разблокировка, обход блокировки discord, обход блокировки youtube, обход блокировки telegram, dpi bypass, антиблокировка, разблокировать дискорд, discord россия, youtube россия, telegram россия, zapret gui, обход dpi, discord unblock russia, youtube unblock russia, telegram unblock russia, anti dpi, bypass discord block, unblock discord, unblock youtube, unblock telegram

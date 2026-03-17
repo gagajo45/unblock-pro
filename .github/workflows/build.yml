@@ -78,6 +78,10 @@ jobs:
       - name: Create bin directory
         run: mkdir -p bin/darwin
 
+      - name: Set versionSonic
+        id: pkg
+        run: echo "version_sonic=$(node -p "require('./package.json').versionSonic || require('./package.json').version")" >> $GITHUB_OUTPUT
+
       - name: Build macOS
         uses: nick-fields/retry@v3
         with:
@@ -87,6 +91,7 @@ jobs:
           command: npm run build:mac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION_SONIC: ${{ steps.pkg.outputs.version_sonic }}
 
       - name: Remove debug files
         run: rm -f dist/builder-debug.yml
@@ -128,6 +133,10 @@ jobs:
         run: mkdir bin\win32
         shell: cmd
 
+      - name: Set versionSonic
+        id: pkg
+        run: echo "version_sonic=$(node -p "require('./package.json').versionSonic || require('./package.json').version")" >> $GITHUB_OUTPUT
+
       - name: Build Windows
         uses: nick-fields/retry@v3
         with:
@@ -137,6 +146,7 @@ jobs:
           command: npm run build:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION_SONIC: ${{ steps.pkg.outputs.version_sonic }}
 
       - name: Remove debug files
         run: del dist\builder-debug.yml 2>nul || true
@@ -160,6 +170,10 @@ jobs:
         with:
           ref: ${{ github.ref == 'refs/heads/main' && 'main' || github.ref }}
 
+      - name: Read versionSonic
+        id: pkg
+        run: echo "version_sonic=$(node -p "require('./package.json').versionSonic || require('./package.json').version")" >> $GITHUB_OUTPUT
+
       - name: Download macOS artifacts
         uses: actions/download-artifact@v4
         with:
@@ -176,18 +190,20 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.prepare.outputs.version }}
-          name: UnblockPro v${{ needs.prepare.outputs.version }}
+          name: UnblockPro sonic ${{ steps.pkg.outputs.version_sonic }} / v${{ needs.prepare.outputs.version }} (gagajo45)
           body: |
-            ## UnblockPro v${{ needs.prepare.outputs.version }}
+            ## UnblockPro — sonic ${{ steps.pkg.outputs.version_sonic }} / v${{ needs.prepare.outputs.version }} (gagajo45)
+            
+            Две версии в названии: **sonic** — база (upstream), **v${{ needs.prepare.outputs.version }}** — сборка форка gagajo45.
             
             ### Скачать
             
             | Платформа | Файл | Описание |
             |-----------|------|----------|
-            | **macOS** Apple Silicon (M1/M2/M3/M4) | `UnblockPro-*-mac-arm64.zip` | Для Mac с M-процессором |
-            | **macOS** Intel | `UnblockPro-*-mac-x64.zip` | Для Mac с Intel |
-            | **Windows** | `UnblockPro-*-win-setup.exe` | Установщик |
-            | **Windows** | `UnblockPro-*-win-portable.exe` | Портативная версия |
+            | **macOS** Apple Silicon (M1/M2/M3/M4) | `UnblockPro-sonic*-v*-mac-arm64.zip` | Для Mac с M-процессором |
+            | **macOS** Intel | `UnblockPro-sonic*-v*-mac-x64.zip` | Для Mac с Intel |
+            | **Windows** | `UnblockPro-sonic*-v*-win-setup.exe` | Установщик |
+            | **Windows** | `UnblockPro-sonic*-v*-win-portable.exe` | Портативная версия |
             
             ### macOS — первый запуск
             
@@ -197,7 +213,7 @@ jobs:
             ```
             
             ---
-            **by sonic**
+            original by sonic · fork by gagajo45
           draft: false
           prerelease: false
           files: |

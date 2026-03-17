@@ -185,14 +185,33 @@ const HOST_LIST_DISCORD = [
   'router.discordapp.net'
 ].join('\n');
 
-// Telegram-only list: Telegram web/app/API endpoints
+// Telegram-only list: web (browser) + desktop app
+// Sources: Flowseal hosts, core.telegram.org datacenters, TG WebSocket API
+// Web: kws*/zws* (WebSocket), pluto/venus/aurora/vesta/flora (DC1-5)
+// Desktop: api, t.me, telegram.org, td.telegram.org
 const HOST_LIST_TELEGRAM = [
-  'telegram.org', 'core.telegram.org',
-  'web.telegram.org', 'web.telegram.org.ua',
-  'api.telegram.org',
-  't.me', 'telegram.me', 'telegram.dog',
+  'telegram.org', 'core.telegram.org', 'api.telegram.org',
+  't.me', 'telegram.me', 'telegram.dog', 'telegram.space',
   'telesco.pe', 'tg.dev',
-  'cdn.telegram.org', 'static.telegram.org'
+  'cdn.telegram.org', 'static.telegram.org', 'td.telegram.org',
+  'desktop.telegram.org', 'gatewayapi.telegram.org',
+  'web.telegram.org', 'web.telegram.org.ua',
+  'kws1.web.telegram.org', 'kws1-1.web.telegram.org',
+  'kws2.web.telegram.org', 'kws2-1.web.telegram.org',
+  'kws3.web.telegram.org', 'kws3-1.web.telegram.org',
+  'kws4.web.telegram.org', 'kws4-1.web.telegram.org',
+  'kws5.web.telegram.org', 'kws5-1.web.telegram.org',
+  'kws6.web.telegram.org', 'kws6-1.web.telegram.org',
+  'zws1.web.telegram.org', 'zws1-1.web.telegram.org',
+  'zws2.web.telegram.org', 'zws2-1.web.telegram.org',
+  'zws3.web.telegram.org', 'zws3-1.web.telegram.org',
+  'zws4.web.telegram.org', 'zws4-1.web.telegram.org',
+  'zws5.web.telegram.org', 'zws5-1.web.telegram.org',
+  'pluto.web.telegram.org', 'pluto-1.web.telegram.org',
+  'venus.web.telegram.org', 'venus-1.web.telegram.org',
+  'aurora.web.telegram.org', 'aurora-1.web.telegram.org',
+  'vesta.web.telegram.org', 'vesta-1.web.telegram.org',
+  'flora.web.telegram.org', 'flora-1.web.telegram.org'
 ].join('\n');
 
 // Exclude list — Russian/local services that should NOT be processed by DPI bypass
@@ -2510,11 +2529,10 @@ function stopProxy() {
   // Kill all related processes synchronously for reliable cleanup
   if (process.platform === 'darwin') {
     try { execSync('pkill -f tpws 2>/dev/null', { stdio: 'pipe' }); } catch (e) {}
-  } else if (process.platform === 'win32') {
+  } else if (process.platform === 'win32' && isRunningAsAdmin()) {
     try {
       execSync('taskkill /F /IM winws.exe', { stdio: 'pipe', timeout: 3000 });
     } catch (e) {
-      // If direct kill fails (elevated process), try elevated taskkill
       try {
         execSync('powershell -command "Start-Process taskkill -ArgumentList \'/F\',\'/IM\',\'winws.exe\' -Verb RunAs -WindowStyle Hidden -Wait"', { stdio: 'pipe', timeout: 5000 });
       } catch (e2) {}
@@ -2733,17 +2751,30 @@ const HOSTS_MARKER = '# UnblockPro Discord/Telegram hosts';
 // Includes Telegram web hosts and Discord voice servers (finland10000-10199.discord.media).
 function generateFallbackHostsData() {
   const lines = [];
-  // Telegram web
+  // Telegram web + desktop (aligned with HOST_LIST_TELEGRAM)
   const tgDomains = [
-    'telegram.me', 'telegram.dog', 'telegram.space', 'telesco.pe', 'tg.dev',
-    'kws2.web.telegram.org', 'kws2-1.web.telegram.org', 'kws1-1.web.telegram.org',
-    'kws1.web.telegram.org', 'telegram.org', 't.me', 'api.telegram.org',
-    'pluto.web.telegram.org', 'pluto-1.web.telegram.org', 'flora.web.telegram.org',
-    'td.telegram.org', 'venus.web.telegram.org', 'web.telegram.org',
-    'kws4-1.web.telegram.org', 'kws4.web.telegram.org', 'kws5-1.web.telegram.org',
-    'kws5.web.telegram.org', 'zws1-1.web.telegram.org', 'zws1.web.telegram.org',
-    'zws2-1.web.telegram.org', 'zws2.web.telegram.org', 'zws4-1.web.telegram.org',
-    'zws5-1.web.telegram.org', 'zws5.web.telegram.org'
+    'telegram.org', 'core.telegram.org', 'api.telegram.org',
+    't.me', 'telegram.me', 'telegram.dog', 'telegram.space',
+    'telesco.pe', 'tg.dev', 'td.telegram.org',
+    'cdn.telegram.org', 'static.telegram.org',
+    'desktop.telegram.org', 'gatewayapi.telegram.org',
+    'web.telegram.org', 'web.telegram.org.ua',
+    'kws1.web.telegram.org', 'kws1-1.web.telegram.org',
+    'kws2.web.telegram.org', 'kws2-1.web.telegram.org',
+    'kws3.web.telegram.org', 'kws3-1.web.telegram.org',
+    'kws4.web.telegram.org', 'kws4-1.web.telegram.org',
+    'kws5.web.telegram.org', 'kws5-1.web.telegram.org',
+    'kws6.web.telegram.org', 'kws6-1.web.telegram.org',
+    'zws1.web.telegram.org', 'zws1-1.web.telegram.org',
+    'zws2.web.telegram.org', 'zws2-1.web.telegram.org',
+    'zws3.web.telegram.org', 'zws3-1.web.telegram.org',
+    'zws4.web.telegram.org', 'zws4-1.web.telegram.org',
+    'zws5.web.telegram.org', 'zws5-1.web.telegram.org',
+    'pluto.web.telegram.org', 'pluto-1.web.telegram.org',
+    'venus.web.telegram.org', 'venus-1.web.telegram.org',
+    'aurora.web.telegram.org', 'aurora-1.web.telegram.org',
+    'vesta.web.telegram.org', 'vesta-1.web.telegram.org',
+    'flora.web.telegram.org', 'flora-1.web.telegram.org'
   ];
   for (const d of tgDomains) lines.push(`149.154.167.220 ${d}`);
   lines.push('');
@@ -2930,12 +2961,24 @@ ipcMain.handle('clear-discord-cache', () => {
   return { success: true, cleared };
 });
 
+function getVersionSonic() {
+  try {
+    const pkgPath = path.join(app.getAppPath(), 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    return pkg.versionSonic || app.getVersion();
+  } catch (e) {
+    return app.getVersion();
+  }
+}
+
 ipcMain.handle('get-system-info', () => ({
   platform: process.platform,
   arch: process.arch,
   version: app.getVersion(),
+  versionSonic: getVersionSonic(),
   binaryExists: fs.existsSync(getBinaryPath() || ''),
-  binaryPath: getBinaryPath()
+  binaryPath: getBinaryPath(),
+  isAdmin: isRunningAsAdmin()
 }));
 
 ipcMain.handle('get-settings', () => {
@@ -3056,29 +3099,29 @@ if (!gotTheLock) {
     // Clean up stale proxy/DNS settings from previous crash
     disableSystemProxy();
     restoreDns();
-    
+
     createWindow();
     createTray();
-    
+
     // Send initial status
     const binaryExists = fs.existsSync(getBinaryPath() || '');
     sendLog({ type: 'info', message: 'Приложение запущено' });
     sendStatus({ binaryExists });
-    
+
     // Setup auto-updater
     setupAutoUpdater();
-    
+
     // Apply saved auto-start setting
     const settings = loadSettings();
     applyAutoStart(settings.autoStart);
-    
+
     // Auto-connect if enabled
     if (settings.autoConnect) {
       setTimeout(() => {
         startProxy();
       }, 1500);
     }
-    
+
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
         createWindow();
@@ -3104,7 +3147,7 @@ if (!gotTheLock) {
     }
     app.isQuitting = true;
     stopProxy();
-    if (process.platform === 'win32') {
+    if (process.platform === 'win32' && isRunningAsAdmin()) {
       try { execSync('taskkill /F /IM winws.exe', { stdio: 'pipe', timeout: 3000 }); } catch (e) {}
     }
   });
@@ -3118,8 +3161,7 @@ if (!gotTheLock) {
     try { if (proxyProcess) proxyProcess.kill(); } catch (e) {}
     if (process.platform === 'darwin') {
       try { execSync('pkill -f tpws 2>/dev/null', { stdio: 'pipe' }); } catch (e) {}
-    } else if (process.platform === 'win32') {
-      // Try normal taskkill first, then elevated if it fails (winws may be running as admin)
+    } else if (process.platform === 'win32' && isRunningAsAdmin()) {
       try { execSync('taskkill /F /IM winws.exe', { stdio: 'pipe', timeout: 3000 }); } catch (e) {
         try {
           execSync('powershell -command "Start-Process taskkill -ArgumentList \'/F\',\'/IM\',\'winws.exe\' -Verb RunAs -WindowStyle Hidden -Wait"', { stdio: 'pipe', timeout: 5000 });

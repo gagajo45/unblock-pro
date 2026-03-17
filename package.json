@@ -1,19 +1,21 @@
 {
   "name": "unblock-pro",
-  "version": "2.0.16",
-  "description": "Обход блокировок Discord и YouTube в России — автоматический DPI bypass для macOS и Windows",
+  "version": "2.0.17",
+  "versionSonic": "2.0.15",
+  "description": "Обход блокировок Discord, YouTube и Telegram в России — автоматический DPI bypass для macOS и Windows",
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder",
-    "build:mac": "electron-builder --mac",
-    "build:win": "electron-builder --win",
-    "build:all": "electron-builder --mac --win",
+    "build": "node scripts/run-build.js",
+    "build:mac": "node scripts/run-build.js --mac",
+    "build:win": "node scripts/run-build.js --win",
+    "build:all": "node scripts/run-build.js --mac --win",
     "download-binaries": "node scripts/download-binaries.js"
   },
   "keywords": [
     "discord",
     "youtube",
+    "telegram",
     "dpi",
     "bypass",
     "unblock",
@@ -24,7 +26,8 @@
     "vpn-alternative",
     "anti-dpi",
     "discord-unblock",
-    "youtube-unblock"
+    "youtube-unblock",
+    "telegram-unblock"
   ],
   "author": "sonic (original), gagajo45 (fork)",
   "license": "MIT",
@@ -76,7 +79,7 @@
       ],
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "artifactName": "UnblockPro-${version}-mac-${arch}.${ext}"
+      "artifactName": "UnblockPro-sonic${env.VERSION_SONIC}-v${version}-mac-${arch}.${ext}"
     },
     "win": {
       "icon": "assets/sonic-icon.png",
@@ -94,15 +97,15 @@
           ]
         }
       ],
-      "requestedExecutionLevel": "requireAdministrator"
+      "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
       "oneClick": true,
       "perMachine": true,
-      "artifactName": "UnblockPro-${version}-win-setup.${ext}"
+      "artifactName": "UnblockPro-sonic${env.VERSION_SONIC}-v${version}-win-setup.${ext}"
     },
     "portable": {
-      "artifactName": "UnblockPro-${version}-win-portable.${ext}"
+      "artifactName": "UnblockPro-sonic${env.VERSION_SONIC}-v${version}-win-portable.${ext}"
     },
     "publish": {
       "provider": "github",
