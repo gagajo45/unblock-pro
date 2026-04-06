@@ -1499,6 +1499,130 @@ body {
   50% { opacity: 0.5; }
 }
 
+/* ============= Service chips ============= */
+.services-setting-row {
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 10px !important;
+}
+
+.service-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.service-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 6px 8px;
+  border-radius: 20px;
+  border: 1.5px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition-normal), border-color var(--transition-normal), color var(--transition-normal), box-shadow var(--transition-normal);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.service-chip input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+}
+
+.chip-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  opacity: 0.35;
+  transition: opacity var(--transition-normal);
+}
+
+.chip-label {
+  transition: color var(--transition-normal);
+}
+
+.chip-check-icon {
+  flex-shrink: 0;
+  opacity: 0;
+  margin-left: 1px;
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+  transform: scale(0.6);
+}
+
+/* Hover state — all chips */
+.service-chip:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+}
+
+.service-chip:hover .chip-icon {
+  opacity: 0.65;
+}
+
+/* ---- Discord active ---- */
+.service-chip.discord:has(input:checked) {
+  background: rgba(88, 101, 242, 0.15);
+  border-color: rgba(88, 101, 242, 0.5);
+  color: #7c8df7;
+  box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.08);
+}
+
+.service-chip.discord:has(input:checked) .chip-icon { opacity: 1; }
+.service-chip.discord:has(input:checked) .chip-check-icon {
+  opacity: 1;
+  transform: scale(1);
+}
+.service-chip.discord:has(input:checked):hover {
+  background: rgba(88, 101, 242, 0.22);
+  border-color: rgba(88, 101, 242, 0.65);
+}
+
+/* ---- YouTube active ---- */
+.service-chip.youtube:has(input:checked) {
+  background: rgba(255, 0, 0, 0.12);
+  border-color: rgba(255, 60, 60, 0.48);
+  color: #ff5c5c;
+  box-shadow: 0 0 0 3px rgba(255, 0, 0, 0.07);
+}
+
+.service-chip.youtube:has(input:checked) .chip-icon { opacity: 1; }
+.service-chip.youtube:has(input:checked) .chip-check-icon {
+  opacity: 1;
+  transform: scale(1);
+}
+.service-chip.youtube:has(input:checked):hover {
+  background: rgba(255, 0, 0, 0.18);
+  border-color: rgba(255, 60, 60, 0.65);
+}
+
+/* ---- Telegram active ---- */
+.service-chip.telegram:has(input:checked) {
+  background: rgba(0, 136, 204, 0.14);
+  border-color: rgba(0, 150, 220, 0.48);
+  color: #29b6f6;
+  box-shadow: 0 0 0 3px rgba(0, 136, 204, 0.07);
+}
+
+.service-chip.telegram:has(input:checked) .chip-icon { opacity: 1; }
+.service-chip.telegram:has(input:checked) .chip-check-icon {
+  opacity: 1;
+  transform: scale(1);
+}
+.service-chip.telegram:has(input:checked):hover {
+  background: rgba(0, 136, 204, 0.22);
+  border-color: rgba(0, 150, 220, 0.65);
+}
+
 /* Animations */
 @keyframes fadeIn {
   from { opacity: 0; }

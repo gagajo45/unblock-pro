@@ -42,6 +42,10 @@ contextBridge.exposeInMainWorld('api', {
   getCustomDomains: () => ipcRenderer.invoke('get-custom-domains'),
   setCustomDomains: (data) => ipcRenderer.invoke('set-custom-domains', data),
 
+  // Enabled services (Discord / YouTube / Telegram)
+  getEnabledServices: () => ipcRenderer.invoke('get-enabled-services'),
+  setEnabledServices: (services) => ipcRenderer.invoke('set-enabled-services', services),
+
   // External links
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   updateHostsForDiscord: () => ipcRenderer.invoke('update-hosts-for-discord'),

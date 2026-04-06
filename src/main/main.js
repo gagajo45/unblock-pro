@@ -24,6 +24,7 @@ let connectedSince = null; // timestamp when connected
 let strategyProgress = null; // { current: N, total: M, name: '...' }
 let logEntries = []; // strategy testing log for UI
 let hostListsDir = null; // directory with host list files for strategies
+let isSearching = false; // strategy search in progress
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -37,7 +38,7 @@ function loadSettings() {
       return JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     }
   } catch (e) {}
-  return { autoStart: false, autoConnect: false, selectedStrategy: 'auto', lastWorkingStrategy: null };
+  return { autoStart: false, autoConnect: false, selectedStrategy: 'auto', lastWorkingStrategy: null, enabledServices: { discord: true, youtube: true, telegram: true } };
 }
 
 function saveSettings(settings) {
@@ -1170,9 +1171,11 @@ function getStrategiesForPlatform() {
 }
 
 function sendStatus(extra = {}) {
+  if ('searching' in extra) isSearching = !!extra.searching;
   if (mainWindow && mainWindow.webContents) {
     mainWindow.webContents.send('status', { 
       connected: isConnected,
+      searching: isSearching,
       downloading: isDownloading,
       strategy: currentStrategy,
       binaryExists: fs.existsSync(getBinaryPath() || ''),
@@ -1702,34 +1705,41 @@ function testSingleConnection(port, timeoutSec, url) {
   });
 }
 
-async function testProxyConnection(port = 1080, timeoutSec = 8) {
-  // Test YouTube + Discord API + Discord CDN in parallel
-  const [ytOk, dcApiOk, dcCdnOk] = await Promise.all([
-    testSingleConnection(port, timeoutSec, 'https://www.youtube.com/'),
-    testSingleConnection(port, timeoutSec, 'https://discord.com/api/v10/gateway'),
-    testSingleConnection(port, timeoutSec, 'https://cdn.discordapp.com/')
-  ]);
+async function testProxyConnection(port = 1080, timeoutSec = 8, enabledServices = null) {
+  const svc = enabledServices || { discord: true, youtube: true, telegram: true };
+  // Nothing enabled — skip testing entirely
+  if (!svc.discord && !svc.youtube && !svc.telegram) return true;
 
-  if (ytOk && dcApiOk && dcCdnOk) return true;
-
-  let ytPassed = ytOk;
-  let dcPassed = dcApiOk || dcCdnOk;
-
-  if (!ytPassed) {
-    ytPassed = await testSingleConnection(port, timeoutSec, 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg');
-    if (!ytPassed) {
+  // Test YouTube
+  if (svc.youtube) {
+    let ytOk = await testSingleConnection(port, timeoutSec, 'https://www.youtube.com/');
+    if (!ytOk) {
+      ytOk = await testSingleConnection(port, timeoutSec, 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg');
+    }
+    if (!ytOk) {
       sendLog({ type: 'warning', message: 'YouTube не прошёл через прокси — стратегия не подходит' });
       return false;
     }
   }
 
-  if (!dcPassed) {
-    // Try more Discord endpoints
-    const dcMedia = await testSingleConnection(port, timeoutSec, 'https://media.discordapp.net/');
-    const dcGateway = await testSingleConnection(port, timeoutSec, 'https://gateway.discord.gg/');
-    dcPassed = dcMedia || dcGateway;
-    if (!dcPassed) {
-      sendLog({ type: 'warning', message: 'Discord (API + CDN + media + gateway) не прошёл — стратегия не подходит' });
+  // Test Discord
+  if (svc.discord) {
+    let dcOk = await testSingleConnection(port, timeoutSec, 'https://discord.com/api/v10/gateway');
+    if (!dcOk) dcOk = await testSingleConnection(port, timeoutSec, 'https://cdn.discordapp.com/');
+    if (!dcOk) dcOk = await testSingleConnection(port, timeoutSec, 'https://media.discordapp.net/');
+    if (!dcOk) dcOk = await testSingleConnection(port, timeoutSec, 'https://gateway.discord.gg/');
+    if (!dcOk) {
+      sendLog({ type: 'warning', message: 'Discord не прошёл через прокси — стратегия не подходит' });
+      return false;
+    }
+  }
+
+  // Test Telegram
+  if (svc.telegram) {
+    let tgOk = await testSingleConnection(port, timeoutSec, 'https://t.me/');
+    if (!tgOk) tgOk = await testSingleConnection(port, timeoutSec, 'https://telegram.org/');
+    if (!tgOk) {
+      sendLog({ type: 'warning', message: 'Telegram не прошёл через прокси — стратегия не подходит' });
       return false;
     }
   }
@@ -1807,82 +1817,77 @@ function testDiscordWebSocketGateway(timeoutSec = 12) {
   });
 }
 
-async function testDirectConnection(timeoutSec = 10) {
+async function testDirectConnection(timeoutSec = 10, enabledServices = null) {
   // winws works at driver level — test with direct HTTPS requests (no SOCKS proxy)
-  // IMPORTANT: Must verify BOTH YouTube AND Discord work, including Discord media
-  // ports (2053,8443 etc.) which are needed for voice/video calls.
-  
-  const youtubeEndpoints = [
-    'https://www.youtube.com/',
-    'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
-    'https://youtubei.googleapis.com/youtubei/v1/player'
-  ];
-  
-  const discordEndpoints = [
-    'https://discord.com/api/v10/gateway',
-    'https://cdn.discordapp.com/',
-    'https://discord.com/app'
-  ];
-  
-  // Discord media — test TLS on the voice/media ports that DPI often blocks
-  const discordMediaEndpoints = [
-    'https://discord.media:443/',
-    'https://discord.gg/'
-  ];
-  
-  // Test YouTube FIRST (hardest to unblock)
-  let youtubeOk = false;
-  for (const url of youtubeEndpoints) {
-    if (await testSingleDirectConnection(url, timeoutSec)) {
-      youtubeOk = true;
-      break;
+  const svc = enabledServices || { discord: true, youtube: true, telegram: true };
+  // Nothing enabled — skip testing entirely
+  if (!svc.discord && !svc.youtube && !svc.telegram) return true;
+
+  // Test YouTube (hardest to unblock)
+  if (svc.youtube) {
+    const youtubeEndpoints = [
+      'https://www.youtube.com/',
+      'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
+      'https://youtubei.googleapis.com/youtubei/v1/player'
+    ];
+    let youtubeOk = false;
+    for (const url of youtubeEndpoints) {
+      if (await testSingleDirectConnection(url, timeoutSec)) { youtubeOk = true; break; }
+    }
+    if (!youtubeOk) {
+      sendLog({ type: 'warning', message: 'YouTube TLS не прошёл — стратегия не подходит' });
+      return false;
     }
   }
-  
-  if (!youtubeOk) {
-    sendLog({ type: 'warning', message: 'YouTube TLS не прошёл — стратегия не подходит' });
-    return false;
-  }
-  
-  // Test Discord API/web
-  let discordOk = false;
-  for (const url of discordEndpoints) {
-    if (await testSingleDirectConnection(url, timeoutSec)) {
-      discordOk = true;
-      break;
+
+  // Test Discord API + WebSocket gateway
+  if (svc.discord) {
+    const discordEndpoints = [
+      'https://discord.com/api/v10/gateway',
+      'https://cdn.discordapp.com/',
+      'https://discord.com/app'
+    ];
+    let discordOk = false;
+    for (const url of discordEndpoints) {
+      if (await testSingleDirectConnection(url, timeoutSec)) { discordOk = true; break; }
+    }
+    if (!discordOk) discordOk = await testSingleDirectConnection(discordEndpoints[0], timeoutSec);
+    if (!discordOk) {
+      sendLog({ type: 'warning', message: 'Discord API не прошёл — стратегия не подходит' });
+      return false;
+    }
+
+    // CRITICAL: WebSocket to gateway — Discord app uses this to load
+    const gatewayWsOk = await testDiscordWebSocketGateway(timeoutSec);
+    if (!gatewayWsOk) {
+      sendLog({ type: 'warning', message: 'Discord gateway (WebSocket) не прошёл — приложение не загрузится' });
+      return false;
+    }
+
+    // Informational: Discord media (voice/video ports)
+    const discordMediaEndpoints = ['https://discord.media:443/', 'https://discord.gg/'];
+    for (const url of discordMediaEndpoints) {
+      if (await testSingleDirectConnection(url, timeoutSec)) {
+        sendLog({ type: 'info', message: 'Discord media: доступен' });
+        break;
+      }
     }
   }
-  
-  if (!discordOk) {
-    // Retry once
-    discordOk = await testSingleDirectConnection(discordEndpoints[0], timeoutSec);
-  }
-  
-  if (!discordOk) {
-    sendLog({ type: 'warning', message: 'Discord API не прошёл — стратегия не подходит' });
-    return false;
-  }
-  
-  // CRITICAL: Test WebSocket to gateway — Discord app uses this to load. If broken, app stays on "Проблемы с подключением".
-  const gatewayWsOk = await testDiscordWebSocketGateway(timeoutSec);
-  if (!gatewayWsOk) {
-    sendLog({ type: 'warning', message: 'Discord gateway (WebSocket) не прошёл — приложение не загрузится' });
-    return false;
-  }
-  
-  // Test Discord media (voice/video)
-  let discordMediaOk = false;
-  for (const url of discordMediaEndpoints) {
-    if (await testSingleDirectConnection(url, timeoutSec)) {
-      discordMediaOk = true;
-      break;
+
+  // Test Telegram
+  if (svc.telegram) {
+    const tgEndpoints = ['https://t.me/', 'https://telegram.org/', 'https://api.telegram.org/'];
+    let tgOk = false;
+    for (const url of tgEndpoints) {
+      if (await testSingleDirectConnection(url, timeoutSec)) { tgOk = true; break; }
+    }
+    if (!tgOk) {
+      sendLog({ type: 'warning', message: 'Telegram не прошёл — стратегия не подходит' });
+      return false;
     }
   }
-  if (discordMediaOk) {
-    sendLog({ type: 'info', message: 'Discord media: доступен' });
-  }
-  
-  return true; // YouTube + Discord API + Discord WebSocket all passed
+
+  return true;
 }
 
 // ============= WINDOWS ELEVATION & MONITORING =============
@@ -1955,7 +1960,8 @@ const PS_TEST_GATEWAY_WS = [
   'exit 1'
 ].join('\r\n');
 
-async function startProxyWindowsElevated(finalBinaryPath, strategies, totalStrategies) {
+async function startProxyWindowsElevated(finalBinaryPath, strategies, totalStrategies, enabledServices = null) {
+  const svc = enabledServices || { discord: true, youtube: true, telegram: true };
   const binDirectory = path.dirname(finalBinaryPath);
   const tempDir = app.getPath('temp');
   const resultFile = path.join(tempDir, 'unblock-result.txt');
@@ -2005,36 +2011,64 @@ async function startProxyWindowsElevated(finalBinaryPath, strategies, totalStrat
     bat += `cd /d "${binDirectory}"\r\n`;
     bat += `start "" /b "${finalBinaryPath}" ${quotedArgs}\r\n`;
     bat += 'timeout /t 4 /nobreak >nul\r\n';
-    // Test connectivity: YouTube TLS FIRST (harder to unblock), then Discord.
-    // A strategy must unblock YouTube to be accepted — Discord alone is not enough.
-    bat += 'set "YT_OK=0"\r\n';
-    bat += `powershell -command "try { $r = Invoke-WebRequest -Uri 'https://www.youtube.com/' -TimeoutSec 12 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
-    bat += 'if !errorlevel! equ 0 set "YT_OK=1"\r\n';
-    bat += 'if "!YT_OK!"=="0" (\r\n';
-    // YouTube main failed, try thumbnail CDN
-    bat += `  powershell -command "try { $r = Invoke-WebRequest -Uri 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg' -TimeoutSec 12 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
-    bat += '  if !errorlevel! equ 0 set "YT_OK=1"\r\n';
-    bat += ')\r\n';
-    // If YouTube failed completely, skip this strategy
-    bat += 'if "!YT_OK!"=="0" (\r\n';
-    bat += '  taskkill /F /IM winws.exe >nul 2>&1\r\n';
-    bat += '  timeout /t 1 /nobreak >nul\r\n';
-    bat += '  goto :strat_next_' + i + '\r\n';
-    bat += ')\r\n';
-    // Require Discord API
-    bat += 'set "DC_OK=0"\r\n';
-    bat += `powershell -command "try { $r = Invoke-WebRequest -Uri 'https://discord.com/api/v10/gateway' -TimeoutSec 10 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
-    bat += 'if !errorlevel! equ 0 set "DC_OK=1"\r\n';
-    bat += 'if "!DC_OK!"=="0" (\r\n';
-    bat += '  taskkill /F /IM winws.exe >nul 2>&1\r\n';
-    bat += '  goto :strat_next_' + i + '\r\n';
-    bat += ')\r\n';
-    // Require Discord gateway WebSocket (app won\'t load without it)
-    bat += `powershell -ExecutionPolicy Bypass -File "${wsTestScript.replace(/\\/g, '\\\\')}"\r\n`;
-    bat += 'if !errorlevel! neq 0 (\r\n';
-    bat += '  taskkill /F /IM winws.exe >nul 2>&1\r\n';
-    bat += '  goto :strat_next_' + i + '\r\n';
-    bat += ')\r\n';
+
+    // If nothing is enabled, accept any strategy immediately
+    if (!svc.discord && !svc.youtube && !svc.telegram) {
+      bat += `echo WORKS:${s.name}> "%RESULT%"\r\n`;
+      bat += 'goto :end\r\n';
+      bat += ':strat_next_' + i + '\r\n';
+      bat += 'taskkill /F /IM winws.exe >nul 2>&1\r\n';
+      bat += 'timeout /t 1 /nobreak >nul\r\n\r\n';
+      continue;
+    }
+
+    // Test YouTube if enabled
+    if (svc.youtube) {
+      bat += 'set "YT_OK=0"\r\n';
+      bat += `powershell -command "try { $r = Invoke-WebRequest -Uri 'https://www.youtube.com/' -TimeoutSec 12 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
+      bat += 'if !errorlevel! equ 0 set "YT_OK=1"\r\n';
+      bat += 'if "!YT_OK!"=="0" (\r\n';
+      bat += `  powershell -command "try { $r = Invoke-WebRequest -Uri 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg' -TimeoutSec 12 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
+      bat += '  if !errorlevel! equ 0 set "YT_OK=1"\r\n';
+      bat += ')\r\n';
+      bat += 'if "!YT_OK!"=="0" (\r\n';
+      bat += '  taskkill /F /IM winws.exe >nul 2>&1\r\n';
+      bat += '  timeout /t 1 /nobreak >nul\r\n';
+      bat += '  goto :strat_next_' + i + '\r\n';
+      bat += ')\r\n';
+    }
+
+    // Test Discord API + WebSocket if enabled
+    if (svc.discord) {
+      bat += 'set "DC_OK=0"\r\n';
+      bat += `powershell -command "try { $r = Invoke-WebRequest -Uri 'https://discord.com/api/v10/gateway' -TimeoutSec 10 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
+      bat += 'if !errorlevel! equ 0 set "DC_OK=1"\r\n';
+      bat += 'if "!DC_OK!"=="0" (\r\n';
+      bat += '  taskkill /F /IM winws.exe >nul 2>&1\r\n';
+      bat += '  goto :strat_next_' + i + '\r\n';
+      bat += ')\r\n';
+      bat += `powershell -ExecutionPolicy Bypass -File "${wsTestScript.replace(/\\/g, '\\\\')}"\r\n`;
+      bat += 'if !errorlevel! neq 0 (\r\n';
+      bat += '  taskkill /F /IM winws.exe >nul 2>&1\r\n';
+      bat += '  goto :strat_next_' + i + '\r\n';
+      bat += ')\r\n';
+    }
+
+    // Test Telegram if enabled
+    if (svc.telegram) {
+      bat += 'set "TG_OK=0"\r\n';
+      bat += `powershell -command "try { $r = Invoke-WebRequest -Uri 'https://t.me/' -TimeoutSec 10 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
+      bat += 'if !errorlevel! equ 0 set "TG_OK=1"\r\n';
+      bat += 'if "!TG_OK!"=="0" (\r\n';
+      bat += `  powershell -command "try { $r = Invoke-WebRequest -Uri 'https://telegram.org/' -TimeoutSec 10 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
+      bat += '  if !errorlevel! equ 0 set "TG_OK=1"\r\n';
+      bat += ')\r\n';
+      bat += 'if "!TG_OK!"=="0" (\r\n';
+      bat += '  taskkill /F /IM winws.exe >nul 2>&1\r\n';
+      bat += '  goto :strat_next_' + i + '\r\n';
+      bat += ')\r\n';
+    }
+
     bat += `echo WORKS:${s.name}> "%RESULT%"\r\n`;
     bat += 'goto :end\r\n';
     bat += ':strat_next_' + i + '\r\n';
@@ -2198,6 +2232,10 @@ async function startProxy() {
   
   // Check if user selected a specific strategy
   const settings = loadSettings();
+  const enabledServices = settings.enabledServices && typeof settings.enabledServices === 'object'
+    ? { discord: true, youtube: true, telegram: true, ...settings.enabledServices }
+    : { discord: true, youtube: true, telegram: true };
+  sendLog({ type: 'info', message: `Проверяем: ${[enabledServices.discord && 'Discord', enabledServices.youtube && 'YouTube', enabledServices.telegram && 'Telegram'].filter(Boolean).join(', ') || 'все сервисы'}` });
   let strategies = allStrategies;
   let singleStrategy = false;
   
@@ -2268,7 +2306,7 @@ async function startProxy() {
     // If not running as admin, use elevated batch approach (single UAC prompt)
     if (!isRunningAsAdmin()) {
       sendLog({ type: 'info', message: 'Нет прав администратора — запуск через UAC...' });
-      return await startProxyWindowsElevated(finalBinaryPath, strategies, totalStrategies);
+      return await startProxyWindowsElevated(finalBinaryPath, strategies, totalStrategies, enabledServices);
     }
 
     try {
@@ -2382,7 +2420,7 @@ async function startProxy() {
         enableSystemProxy(1080);
         
         // Actually test if connection works through the proxy
-        const works = await testProxyConnection(1080, 10);
+        const works = await testProxyConnection(1080, 10, enabledServices);
         
         if (works) {
           // Strategy verified working
@@ -2450,7 +2488,7 @@ async function startProxy() {
         }
 
         // winws is running — test if DPI bypass actually works
-        const works = await testDirectConnection(10);
+        const works = await testDirectConnection(10, enabledServices);
         
         if (works) {
           // Strategy verified working!
@@ -2943,6 +2981,7 @@ ipcMain.handle('download-binaries', async () => {
 ipcMain.handle('get-status', () => {
   return { 
     connected: isConnected,
+    searching: isSearching,
     downloading: isDownloading,
     strategy: currentStrategy,
     binaryExists: fs.existsSync(getBinaryPath() || ''),
@@ -3185,17 +3224,23 @@ ipcMain.handle('update-hosts-for-discord', async () => {
 });
 
 ipcMain.handle('clear-discord-cache', () => {
-  const discordBase = path.join(process.env.APPDATA || '', 'discord');
   const dirs = ['Cache', 'Code Cache', 'GPUCache'];
   let cleared = 0;
-  for (const d of dirs) {
-    const full = path.join(discordBase, d);
-    try {
-      if (fs.existsSync(full)) {
-        fs.rmSync(full, { recursive: true });
-        cleared++;
-      }
-    } catch (e) {}
+  // Check both Roaming (%APPDATA%) and Local (%LOCALAPPDATA%) — newer Discord uses Local
+  const basePaths = [
+    path.join(process.env.APPDATA || '', 'discord'),
+    path.join(process.env.LOCALAPPDATA || '', 'discord')
+  ].filter(p => p && p !== path.join('', 'discord'));
+  for (const base of basePaths) {
+    for (const d of dirs) {
+      const full = path.join(base, d);
+      try {
+        if (fs.existsSync(full)) {
+          fs.rmSync(full, { recursive: true });
+          cleared++;
+        }
+      } catch (e) {}
+    }
   }
   sendLog({ type: 'info', message: cleared ? `Очищен кэш Discord (${cleared} папок)` : 'Кэш Discord не найден или уже пуст' });
   return { success: true, cleared };
@@ -3455,10 +3500,18 @@ ipcMain.handle('restart-as-admin', () => {
   if (process.platform !== 'win32' || isRunningAsAdmin()) return { ok: false, error: 'Уже с правами администратора' };
   // electron-builder portable: PORTABLE_EXECUTABLE_FILE = исходный путь exe (не temp)
   const exePath = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+  // In dev mode, pass the app directory as argument so Electron loads our app
+  const extraArgs = isDev ? `"${app.getAppPath().replace(/"/g, '""')}"` : '';
+  const currentPid = process.pid;
   const batchPath = path.join(require('os').tmpdir(), `UnblockPro-restart-admin-${Date.now()}.bat`);
+  // Kill the current instance by PID to release the single-instance lock,
+  // then start a fresh elevated instance that can acquire the lock.
   const batchContent = `@echo off
-timeout /t 3 /nobreak >nul
-start "" "${exePath.replace(/"/g, '""')}"
+timeout /t 1 /nobreak >nul
+taskkill /F /PID ${currentPid} >nul 2>&1
+timeout /t 1 /nobreak >nul
+start "" "${exePath.replace(/"/g, '""')}" ${extraArgs}
+del "%~f0"
 `;
   fs.writeFileSync(batchPath, batchContent, 'utf8');
   return new Promise((resolve) => {
@@ -3472,8 +3525,9 @@ start "" "${exePath.replace(/"/g, '""')}"
         resolve({ ok: false, error: err.message || 'Ошибка' });
         return;
       }
+      // Process may already be killed by taskkill at this point — that's fine
       app.isQuitting = true;
-      setTimeout(() => app.quit(), 400);
+      setTimeout(() => app.quit(), 300);
       resolve({ ok: true });
     });
   });
@@ -3607,6 +3661,26 @@ ipcMain.handle('set-custom-domains', (event, { include, exclude }) => {
   settings.customExcludeDomains = (exclude || []).map(d => d.trim().toLowerCase()).filter(Boolean);
   saveSettings(settings);
   ensureHostLists();
+  return { success: true };
+});
+
+ipcMain.handle('get-enabled-services', () => {
+  const settings = loadSettings();
+  return {
+    discord: settings.enabledServices?.discord !== false,
+    youtube: settings.enabledServices?.youtube !== false,
+    telegram: settings.enabledServices?.telegram !== false
+  };
+});
+
+ipcMain.handle('set-enabled-services', (event, services) => {
+  const settings = loadSettings();
+  settings.enabledServices = {
+    discord: services?.discord !== false,
+    youtube: services?.youtube !== false,
+    telegram: services?.telegram !== false
+  };
+  saveSettings(settings);
   return { success: true };
 });
 

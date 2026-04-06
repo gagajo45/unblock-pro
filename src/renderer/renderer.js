@@ -49,6 +49,11 @@ const excludeInput = document.getElementById('excludeInput');
 const includeAddBtn = document.getElementById('includeAddBtn');
 const excludeAddBtn = document.getElementById('excludeAddBtn');
 
+// Service chip elements
+const discordServiceToggle = document.getElementById('discordServiceToggle');
+const youtubeServiceToggle = document.getElementById('youtubeServiceToggle');
+const telegramServiceToggle = document.getElementById('telegramServiceToggle');
+
 // State
 let isConnected = false;
 let isConnecting = false;
@@ -59,6 +64,7 @@ let logsOpen = false;
 let logCount = 0;
 let customIncludeDomains = [];
 let customExcludeDomains = [];
+let enabledServices = { discord: true, youtube: true, telegram: true };
 
 // Update elements
 const updateBanner = document.getElementById('updateBanner');
@@ -78,7 +84,10 @@ const ERROR_TITLES = {
   'PERMISSION_DENIED': 'Нет прав доступа',
   'PORT_IN_USE': 'Порт занят',
   'NETWORK_UNAVAILABLE': 'Нет сети',
-  'ALREADY_RUNNING': 'Уже подключено'
+  'ALREADY_RUNNING': 'Уже подключено',
+  'WINDIVERT_MISSING': 'WinDivert не найден',
+  'WINDIVERT_BLOCKED': 'WinDivert заблокирован антивирусом',
+  'READ_ERROR': 'Ошибка чтения результата'
 };
 
 // Initialize
@@ -99,7 +108,8 @@ async function init() {
         loadStatus(),
         loadSettings(),
         loadLogs(),
-        loadCustomDomains()
+        loadCustomDomains(),
+        loadEnabledServices()
       ]),
       new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000))
     ]);
@@ -181,6 +191,26 @@ function setupEventListeners() {
     handleConnectClick();
   });
   
+  // Service chip toggles
+  [
+    { el: discordServiceToggle, key: 'discord' },
+    { el: youtubeServiceToggle, key: 'youtube' },
+    { el: telegramServiceToggle, key: 'telegram' }
+  ].forEach(({ el, key }) => {
+    if (!el) return;
+    el.addEventListener('change', async () => {
+      enabledServices[key] = el.checked;
+      // Ensure at least one service is always selected
+      const anyOn = enabledServices.discord || enabledServices.youtube || enabledServices.telegram;
+      if (!anyOn) {
+        enabledServices[key] = true;
+        el.checked = true;
+      }
+      updateServiceChipVisuals();
+      await window.api.setEnabledServices({ ...enabledServices });
+    });
+  });
+
   // Domains toggle
   domainsToggle.addEventListener('click', () => {
     openDomainsModal();
@@ -487,6 +517,7 @@ function updateTimerDisplay() {
 
 function showServiceBadges() {
   serviceBadges.style.display = 'flex';
+  updateServiceBadgesVisibility();
 }
 
 function hideServiceBadges() {
@@ -630,8 +661,11 @@ function handleUpdateStatus(data) {
       updateDownloadedVersion = null;
       updateBanner.style.display = 'flex';
       updateBanner.classList.remove('downloading');
-      updateText.textContent = `Обновление v${version} загружается...`;
-      updateBtn.style.display = 'none';
+      updateText.textContent = `Доступно обновление v${version}`;
+      updateBtn.textContent = 'Скачать';
+      updateBtn.style.display = 'block';
+      updateBtn.disabled = false;
+      updateBtn.title = 'Скачать и установить обновление';
       break;
     case 'downloaded':
       updateDownloadedVersion = version;
@@ -722,6 +756,39 @@ async function loadCustomDomains() {
     renderDomainList('include');
     renderDomainList('exclude');
   } catch (e) {}
+}
+
+async function loadEnabledServices() {
+  try {
+    if (!window.api?.getEnabledServices) return;
+    const svc = await window.api.getEnabledServices();
+    enabledServices = {
+      discord: svc?.discord !== false,
+      youtube: svc?.youtube !== false,
+      telegram: svc?.telegram !== false
+    };
+    if (discordServiceToggle) discordServiceToggle.checked = enabledServices.discord;
+    if (youtubeServiceToggle) youtubeServiceToggle.checked = enabledServices.youtube;
+    if (telegramServiceToggle) telegramServiceToggle.checked = enabledServices.telegram;
+  } catch (e) {}
+}
+
+function updateServiceChipVisuals() {
+  // Update service badges visibility when connected — only show enabled ones
+  if (isConnected) {
+    updateServiceBadgesVisibility();
+  }
+}
+
+function updateServiceBadgesVisibility() {
+  const badges = {
+    discord: serviceBadges?.querySelector('.service-badge.discord'),
+    youtube: serviceBadges?.querySelector('.service-badge.youtube'),
+    telegram: serviceBadges?.querySelector('.service-badge.telegram')
+  };
+  if (badges.discord) badges.discord.style.display = enabledServices.discord ? '' : 'none';
+  if (badges.youtube) badges.youtube.style.display = enabledServices.youtube ? '' : 'none';
+  if (badges.telegram) badges.telegram.style.display = enabledServices.telegram ? '' : 'none';
 }
 
 function renderDomainList(type) {
