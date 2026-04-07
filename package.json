@@ -1,6 +1,6 @@
 {
   "name": "unblock-pro",
-  "version": "2.0.25",
+  "version": "2.0.26",
   "versionSonic": "2.0.15",
   "description": "Обход блокировок Discord, YouTube и Telegram в России — автоматический DPI bypass для macOS и Windows",
   "main": "src/main/main.js",
@@ -49,7 +49,8 @@
   },
   "dependencies": {
     "electron-updater": "^6.7.3",
-    "sudo-prompt": "^9.2.1"
+    "sudo-prompt": "^9.2.1",
+    "ws": "^8.20.0"
   },
   "build": {
     "appId": "com.sonic.unblockpro",

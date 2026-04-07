@@ -8,6 +8,7 @@ const dns = require('dns');
 const tls = require('tls');
 const crypto = require('crypto');
 const sudo = require('sudo-prompt');
+const { createProxy: createTgProxy } = require('./tg-proxy');
 
 dns.setDefaultResultOrder('ipv4first');
 const ipv4Lookup = (host, opts, cb) => dns.lookup(host, { family: 4 }, cb);
@@ -1579,370 +1580,33 @@ function checkProxyRegistry() {
   }
 }
 
-// ============= TELEGRAM DESKTOP SOCKS5→WSS PROXY (pure Node.js, no external binary) =============
-//
-// Implements the same algorithm as github.com/by-sonic/tglock:
-//   - Listen on SOCKS5 port 1080
-//   - For Telegram IPs: read 64-byte obfuscated2 init, extract DC (AES-256-CTR),
-//     tunnel via WSS to kws{dc}.web.telegram.org/apiws
-//   - For non-Telegram: direct TCP passthrough
-
-// Telegram IP → DC mapping (same as tglock source)
-function getTelegramDC(ip) {
-  const p = ip.split('.').map(Number);
-  if (p.length !== 4 || p.some(isNaN)) return null;
-  const [a, b, c] = p;
-  if (a === 149 && b === 154) {
-    if (c >= 160 && c <= 163) return 1;
-    if (c >= 164 && c <= 167) return 2;
-    if (c >= 168 && c <= 171) return 3;
-    if (c >= 172 && c <= 175) return 1;
-    return 2;
-  }
-  if (a === 91 && b === 108) {
-    if (c >= 56 && c <= 59) return 5;
-    if (c >= 8 && c <= 11) return 3;
-    if (c >= 12 && c <= 15) return 4;
-    return 2;
-  }
-  if ((a === 91 && b === 105) || (a === 185 && b === 76)) return 2;
-  return null;
-}
-
-// Extract DC number from obfuscated2 64-byte init packet via AES-256-CTR
-function extractDCFromObf2(buf) {
-  try {
-    if (buf.length < 64) return null;
-    const key = buf.slice(8, 40);
-    const iv = buf.slice(40, 56);
-    const decipher = crypto.createDecipheriv('aes-256-ctr', key, iv);
-    const dec = Buffer.concat([decipher.update(buf.slice(0, 64)), decipher.final()]);
-    const dcId = dec.readInt32LE(60);
-    const dc = Math.abs(dcId);
-    return (dc >= 1 && dc <= 5) ? dc : null;
-  } catch (e) { return null; }
-}
-
-// WebSocket frame encoder — client→server (masked)
-function wsEncodeFrame(data) {
-  const len = data.length;
-  const mask = crypto.randomBytes(4);
-  let header;
-  let maskOff;
-  if (len < 126) {
-    header = Buffer.allocUnsafe(6);
-    header[1] = 0x80 | len;
-    maskOff = 2;
-  } else if (len < 65536) {
-    header = Buffer.allocUnsafe(8);
-    header[1] = 0xFE;
-    header.writeUInt16BE(len, 2);
-    maskOff = 4;
-  } else {
-    header = Buffer.allocUnsafe(14);
-    header[1] = 0xFF;
-    header.writeBigUInt64BE(BigInt(len), 2);
-    maskOff = 10;
-  }
-  header[0] = 0x82; // FIN + binary opcode
-  mask.copy(header, maskOff);
-  const masked = Buffer.allocUnsafe(len);
-  for (let i = 0; i < len; i++) masked[i] = data[i] ^ mask[i % 4];
-  return Buffer.concat([header, masked]);
-}
-
-// WebSocket frame decoder — server→client (unmasked)
-function wsDecodeFrames(buf) {
-  const frames = [];
-  let pos = 0;
-  while (pos + 2 <= buf.length) {
-    const opcode = buf[pos] & 0x0F;
-    const masked = (buf[pos + 1] & 0x80) !== 0;
-    let payloadLen = buf[pos + 1] & 0x7F;
-    let extLen = 0;
-    if (payloadLen === 126) { if (pos + 4 > buf.length) break; payloadLen = buf.readUInt16BE(pos + 2); extLen = 2; }
-    else if (payloadLen === 127) { if (pos + 10 > buf.length) break; payloadLen = Number(buf.readBigUInt64BE(pos + 2)); extLen = 8; }
-    const headerLen = 2 + extLen + (masked ? 4 : 0);
-    if (pos + headerLen + payloadLen > buf.length) break;
-    let payload = buf.slice(pos + headerLen, pos + headerLen + payloadLen);
-    if (masked) {
-      const mk = buf.slice(pos + 2 + extLen, pos + 2 + extLen + 4);
-      payload = Buffer.from(payload);
-      for (let i = 0; i < payload.length; i++) payload[i] ^= mk[i % 4];
-    }
-    frames.push({ opcode, payload });
-    pos += headerLen + payloadLen;
-  }
-  return { frames, remaining: buf.slice(pos) };
-}
-
-// Simple buffered reader for a net.Socket (keeps data in order)
-function createReader(socket) {
-  const chunks = [];
-  let byteCount = 0;
-  const waiters = [];
-  let socketDead = false;
-  let deathErr = null;
-
-  const die = (err) => {
-    socketDead = true;
-    deathErr = err || new Error('Socket closed');
-    waiters.splice(0).forEach(w => w.reject(deathErr));
-  };
-
-  socket.on('data', (chunk) => {
-    chunks.push(chunk);
-    byteCount += chunk.length;
-    while (waiters.length > 0 && byteCount >= waiters[0].n) {
-      const { n, resolve } = waiters.shift();
-      let out = Buffer.allocUnsafe(n);
-      let written = 0;
-      while (written < n) {
-        const head = chunks[0];
-        const need = n - written;
-        if (head.length <= need) {
-          head.copy(out, written);
-          written += head.length;
-          byteCount -= head.length;
-          chunks.shift();
-        } else {
-          head.copy(out, written, 0, need);
-          chunks[0] = head.slice(need);
-          byteCount -= need;
-          written += need;
-        }
-      }
-      resolve(out);
-    }
-  });
-  socket.on('error', die);
-  socket.on('close', () => die());
-
-  return {
-    read(n, timeoutMs = 15000) {
-      if (socketDead) return Promise.reject(deathErr);
-      if (byteCount >= n) {
-        // Already have enough — resolve synchronously
-        return new Promise((resolve) => {
-          let out = Buffer.allocUnsafe(n);
-          let written = 0;
-          while (written < n) {
-            const head = chunks[0];
-            const need = n - written;
-            if (head.length <= need) {
-              head.copy(out, written);
-              written += head.length;
-              byteCount -= head.length;
-              chunks.shift();
-            } else {
-              head.copy(out, written, 0, need);
-              chunks[0] = head.slice(need);
-              byteCount -= need;
-              written += need;
-            }
-          }
-          resolve(out);
-        });
-      }
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          const idx = waiters.findIndex(w => w.resolve === resolve);
-          if (idx !== -1) waiters.splice(idx, 1);
-          reject(new Error(`Read timeout (need ${n} bytes)`));
-        }, timeoutMs);
-        waiters.push({
-          n,
-          resolve: (data) => { clearTimeout(timer); resolve(data); },
-          reject: (e) => { clearTimeout(timer); reject(e); }
-        });
-      });
-    }
-  };
-}
-
-async function handleTgProxyClient(clientSock) {
-  clientSock.setNoDelay(true);
-  const reader = createReader(clientSock);
-
-  try {
-    // SOCKS5 auth negotiation
-    const authHdr = await reader.read(2);
-    if (authHdr[0] !== 0x05) return;
-    await reader.read(authHdr[1]); // discard methods
-    clientSock.write(Buffer.from([0x05, 0x00])); // no auth
-
-    // SOCKS5 CONNECT request
-    const reqHdr = await reader.read(4);
-    if (reqHdr[1] !== 0x01) {
-      clientSock.write(Buffer.from([0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0]));
-      return;
-    }
-
-    let destAddr, destPort;
-    if (reqHdr[3] === 0x01) { // IPv4
-      const ip = await reader.read(4);
-      const pt = await reader.read(2);
-      destAddr = Array.from(ip).join('.');
-      destPort = pt.readUInt16BE(0);
-    } else if (reqHdr[3] === 0x03) { // Domain
-      const dlen = await reader.read(1);
-      const dom = await reader.read(dlen[0]);
-      const pt = await reader.read(2);
-      destAddr = dom.toString();
-      destPort = pt.readUInt16BE(0);
-    } else if (reqHdr[3] === 0x04) { // IPv6
-      const ip6 = await reader.read(16);
-      const pt = await reader.read(2);
-      const segs = [];
-      for (let i = 0; i < 16; i += 2) segs.push(ip6.readUInt16BE(i).toString(16));
-      destAddr = segs.join(':');
-      destPort = pt.readUInt16BE(0);
-    } else {
-      clientSock.write(Buffer.from([0x05, 0x08, 0x00, 0x01, 0, 0, 0, 0, 0, 0]));
-      return;
-    }
-
-    // SOCKS5 success reply
-    clientSock.write(Buffer.from([0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0x04, 0x38]));
-
-    const tgDC = getTelegramDC(destAddr);
-
-    if (tgDC !== null) {
-      // Telegram traffic: WSS tunnel
-      const init64 = await reader.read(64);
-      const dc = extractDCFromObf2(init64) || tgDC;
-      await tunnelViaTgWS(clientSock, dc, init64);
-    } else {
-      // Non-Telegram: direct TCP
-      const remote = await new Promise((resolve, reject) => {
-        const s = net.createConnection({ host: destAddr, port: destPort });
-        s.setTimeout(10000);
-        s.once('connect', () => { s.setTimeout(0); resolve(s); });
-        s.once('timeout', () => reject(new Error('Connect timeout')));
-        s.once('error', reject);
-      });
-      remote.setNoDelay(true);
-      clientSock.pipe(remote);
-      remote.pipe(clientSock);
-      await new Promise(res => {
-        clientSock.once('close', res); clientSock.once('error', res);
-        remote.once('close', res); remote.once('error', res);
-      });
-      try { clientSock.destroy(); } catch (e) {}
-      try { remote.destroy(); } catch (e) {}
-    }
-  } catch (e) {
-    try { clientSock.destroy(); } catch (err) {}
-  }
-}
-
-async function tunnelViaTgWS(clientSock, dc, init64) {
-  const wsHost = `kws${dc}.web.telegram.org`;
-  const wsKey = crypto.randomBytes(16).toString('base64');
-
-  return new Promise((resolve) => {
-    const tlsConn = tls.connect({ host: wsHost, port: 443, servername: wsHost, rejectUnauthorized: false });
-
-    let upgraded = false;
-    let httpBuf = Buffer.alloc(0);
-    let wsBuf = Buffer.alloc(0);
-
-    const cleanup = () => {
-      try { tlsConn.destroy(); } catch (e) {}
-      try { clientSock.destroy(); } catch (e) {}
-      resolve();
-    };
-
-    tlsConn.once('error', cleanup);
-    tlsConn.once('close', cleanup);
-    clientSock.once('error', cleanup);
-    clientSock.once('close', () => { try { tlsConn.destroy(); } catch (e) {} resolve(); });
-
-    tlsConn.once('secureConnect', () => {
-      const upgradeReq = [
-        `GET /apiws HTTP/1.1`,
-        `Host: ${wsHost}`,
-        `Upgrade: websocket`,
-        `Connection: Upgrade`,
-        `Sec-WebSocket-Key: ${wsKey}`,
-        `Sec-WebSocket-Version: 13`,
-        `Sec-WebSocket-Protocol: binary`,
-        '', ''
-      ].join('\r\n');
-      tlsConn.write(upgradeReq);
-    });
-
-    tlsConn.on('data', (data) => {
-      if (!upgraded) {
-        httpBuf = Buffer.concat([httpBuf, data]);
-        const end = httpBuf.indexOf('\r\n\r\n');
-        if (end === -1) return;
-        const statusLine = httpBuf.slice(0, httpBuf.indexOf('\r\n')).toString();
-        if (!statusLine.includes('101')) { cleanup(); return; }
-        upgraded = true;
-
-        // Send the 64-byte init packet as first WS binary frame
-        tlsConn.write(wsEncodeFrame(init64));
-
-        // Forward client → WS
-        clientSock.on('data', (chunk) => {
-          if (!tlsConn.destroyed) tlsConn.write(wsEncodeFrame(chunk));
-        });
-
-        // Process any data that arrived after HTTP headers
-        wsBuf = httpBuf.slice(end + 4);
-        processWsData();
-      } else {
-        wsBuf = Buffer.concat([wsBuf, data]);
-        processWsData();
-      }
-    });
-
-    function processWsData() {
-      const { frames, remaining } = wsDecodeFrames(wsBuf);
-      wsBuf = remaining;
-      for (const { opcode, payload } of frames) {
-        if (opcode === 0x02 || opcode === 0x01 || opcode === 0x00) {
-          if (!clientSock.destroyed && payload.length > 0) clientSock.write(payload);
-        } else if (opcode === 0x09) {
-          // Ping → Pong
-          const pong = Buffer.allocUnsafe(payload.length + 6);
-          pong[0] = 0x8A;
-          pong[1] = 0x80 | payload.length;
-          const mask = crypto.randomBytes(4);
-          mask.copy(pong, 2);
-          for (let i = 0; i < payload.length; i++) pong[6 + i] = payload[i] ^ mask[i % 4];
-          if (!tlsConn.destroyed) tlsConn.write(pong);
-        } else if (opcode === 0x08) {
-          cleanup();
-          return;
-        }
-      }
-    }
-  });
-}
+// ============= TELEGRAM DESKTOP SOCKS5→WSS PROXY =============
+// Implemented in src/main/tg-proxy.js (uses the `ws` npm package)
+// Mirrors github.com/by-sonic/tglock algorithm exactly.
 
 async function startTgUnlock() {
   if (process.platform !== 'win32') return false;
-  if (tgProxyServer) return true; // already running
+  if (tgProxyServer) return true;
 
-  // Kill any leftover tg_unblock.exe or anything holding port 1080
+  // Kill any leftover tg_unblock.exe that might be holding port 1080
   try { execSync('taskkill /F /IM tg_unblock.exe 2>nul', { stdio: 'pipe' }); } catch (e) {}
 
-  // If port is still in use, wait a moment and retry once
-  const tryBind = () => new Promise((resolve) => {
-    const srv = net.createServer((socket) => {
-      handleTgProxyClient(socket).catch(() => { try { socket.destroy(); } catch (e) {} });
-    });
-    srv.once('error', (e) => resolve({ ok: false, err: e.message }));
-    srv.listen(TGLOCK_PORT, '127.0.0.1', () => resolve({ ok: true, srv }));
-  });
+  const tryStart = async () => {
+    try {
+      const srv = await createTgProxy({
+        port: TGLOCK_PORT,
+        onLog: (msg) => sendLog({ type: 'info', message: `[TG Proxy] ${msg}` }),
+      });
+      return { ok: true, srv };
+    } catch (e) {
+      return { ok: false, err: e.message };
+    }
+  };
 
-  let result = await tryBind();
+  let result = await tryStart();
   if (!result.ok) {
-    // Wait 1 second and retry (old process may still be dying)
     await new Promise(r => setTimeout(r, 1000));
-    result = await tryBind();
+    result = await tryStart();
   }
 
   if (!result.ok) {
