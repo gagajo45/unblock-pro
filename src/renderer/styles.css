@@ -1623,6 +1623,90 @@ body {
   border-color: rgba(0, 150, 220, 0.65);
 }
 
+/* ---- TG Desktop active ---- */
+.service-chip.telegram-desktop:has(input:checked) {
+  background: rgba(38, 98, 218, 0.14);
+  border-color: rgba(60, 120, 255, 0.48);
+  color: #7ab3ff;
+  box-shadow: 0 0 0 3px rgba(38, 98, 218, 0.07);
+}
+
+.service-chip.telegram-desktop:has(input:checked) .chip-icon { opacity: 1; }
+.service-chip.telegram-desktop:has(input:checked) .chip-check-icon {
+  opacity: 1;
+  transform: scale(1);
+}
+.service-chip.telegram-desktop:has(input:checked):hover {
+  background: rgba(38, 98, 218, 0.22);
+  border-color: rgba(60, 120, 255, 0.65);
+}
+
+/* ---- TG Desktop service badge ---- */
+.service-badge.telegram-desktop {
+  background: rgba(38, 98, 218, 0.18);
+  color: #7ab3ff;
+  border-color: rgba(60, 120, 255, 0.35);
+}
+
+/* ---- Stale proxy banner ---- */
+.stale-proxy-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 16px 8px;
+  padding: 8px 12px;
+  background: rgba(255, 160, 30, 0.12);
+  border: 1px solid rgba(255, 160, 30, 0.35);
+  border-radius: 10px;
+  animation: slideDown 0.25s ease;
+}
+
+.stale-proxy-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(255, 190, 80, 0.92);
+  flex: 1;
+  min-width: 0;
+}
+
+.stale-proxy-info svg {
+  flex-shrink: 0;
+  color: rgba(255, 160, 30, 0.85);
+}
+
+.stale-proxy-clear-btn {
+  background: rgba(255, 160, 30, 0.18);
+  border: 1px solid rgba(255, 160, 30, 0.4);
+  color: rgba(255, 190, 80, 0.95);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.stale-proxy-clear-btn:hover {
+  background: rgba(255, 160, 30, 0.3);
+  border-color: rgba(255, 160, 30, 0.65);
+}
+
+/* ---- Open Telegram with proxy button ---- */
+.tg-proxy-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #29b6f6;
+}
+
+.tg-proxy-btn svg {
+  flex-shrink: 0;
+}
+
 /* Animations */
 @keyframes fadeIn {
   from { opacity: 0; }

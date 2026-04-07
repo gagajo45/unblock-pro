@@ -52,7 +52,13 @@ const excludeAddBtn = document.getElementById('excludeAddBtn');
 // Service chip elements
 const discordServiceToggle = document.getElementById('discordServiceToggle');
 const youtubeServiceToggle = document.getElementById('youtubeServiceToggle');
-const telegramServiceToggle = document.getElementById('telegramServiceToggle');
+const telegramWebServiceToggle = document.getElementById('telegramWebServiceToggle');
+const telegramDesktopServiceToggle = document.getElementById('telegramDesktopServiceToggle');
+
+// Stale proxy / tglock elements
+const staleProxyBanner = document.getElementById('staleProxyBanner');
+const clearProxyRegistryBtn = document.getElementById('clearProxyRegistryBtn');
+const openTelegramWithProxyBtn = document.getElementById('openTelegramWithProxyBtn');
 
 // State
 let isConnected = false;
@@ -64,7 +70,8 @@ let logsOpen = false;
 let logCount = 0;
 let customIncludeDomains = [];
 let customExcludeDomains = [];
-let enabledServices = { discord: true, youtube: true, telegram: true };
+let enabledServices = { discord: true, youtube: true, telegramWeb: true, telegramDesktop: true };
+let tglockRunning = false;
 
 // Update elements
 const updateBanner = document.getElementById('updateBanner');
@@ -124,7 +131,17 @@ async function init() {
   window.api.onUpdateStatus(handleUpdateStatus);
   window.api.onUpdateDownloadProgress(handleUpdateDownloadProgress);
   window.api.onLogEntry(handleLogEntry);
+  window.api.onTglockStarted?.((data) => {
+    tglockRunning = true;
+    if (openTelegramWithProxyBtn) openTelegramWithProxyBtn.style.display = 'flex';
+    if (document.getElementById('badgeTelegramDesktop')) {
+      document.getElementById('badgeTelegramDesktop').style.display = '';
+    }
+  });
   updateBtn?.addEventListener('click', handleUpdateBtnClick);
+
+  // Load proxy registry status on startup
+  loadProxyRegistryStatus();
 }
 
 function openDomainsModal() {
@@ -195,13 +212,14 @@ function setupEventListeners() {
   [
     { el: discordServiceToggle, key: 'discord' },
     { el: youtubeServiceToggle, key: 'youtube' },
-    { el: telegramServiceToggle, key: 'telegram' }
+    { el: telegramWebServiceToggle, key: 'telegramWeb' },
+    { el: telegramDesktopServiceToggle, key: 'telegramDesktop' }
   ].forEach(({ el, key }) => {
     if (!el) return;
     el.addEventListener('change', async () => {
       enabledServices[key] = el.checked;
       // Ensure at least one service is always selected
-      const anyOn = enabledServices.discord || enabledServices.youtube || enabledServices.telegram;
+      const anyOn = enabledServices.discord || enabledServices.youtube || enabledServices.telegramWeb || enabledServices.telegramDesktop;
       if (!anyOn) {
         enabledServices[key] = true;
         el.checked = true;
@@ -209,6 +227,19 @@ function setupEventListeners() {
       updateServiceChipVisuals();
       await window.api.setEnabledServices({ ...enabledServices });
     });
+  });
+
+  // Clear stale proxy registry
+  clearProxyRegistryBtn?.addEventListener('click', async () => {
+    if (!window.api?.clearProxyRegistry) return;
+    await window.api.clearProxyRegistry();
+    if (staleProxyBanner) staleProxyBanner.style.display = 'none';
+  });
+
+  // Open Telegram Desktop with proxy
+  openTelegramWithProxyBtn?.addEventListener('click', async () => {
+    if (!window.api?.openTelegramWithProxy) return;
+    await window.api.openTelegramWithProxy();
   });
 
   // Domains toggle
@@ -464,6 +495,16 @@ function handleStatusUpdate(status) {
   if (!isDownloading) {
     updateBinaryStatus(status.binaryExists);
   }
+
+  // Show stale proxy banner if backend detected leftover registry key
+  if (status.staleProxyRegistry && staleProxyBanner) {
+    staleProxyBanner.style.display = 'flex';
+  }
+
+  // Show/hide open-telegram button based on tglock state
+  if (openTelegramWithProxyBtn) {
+    openTelegramWithProxyBtn.style.display = (isConnected && tglockRunning) ? 'flex' : 'none';
+  }
 }
 
 // ============= Strategy Progress =============
@@ -522,6 +563,11 @@ function showServiceBadges() {
 
 function hideServiceBadges() {
   serviceBadges.style.display = 'none';
+  // Hide TG Desktop badge when disconnected
+  const badgeTgDesktop = document.getElementById('badgeTelegramDesktop');
+  if (badgeTgDesktop) badgeTgDesktop.style.display = 'none';
+  tglockRunning = false;
+  if (openTelegramWithProxyBtn) openTelegramWithProxyBtn.style.display = 'none';
 }
 
 // ============= Error Display =============
@@ -765,11 +811,24 @@ async function loadEnabledServices() {
     enabledServices = {
       discord: svc?.discord !== false,
       youtube: svc?.youtube !== false,
-      telegram: svc?.telegram !== false
+      telegramWeb: svc?.telegramWeb !== false,
+      telegramDesktop: svc?.telegramDesktop !== false
     };
     if (discordServiceToggle) discordServiceToggle.checked = enabledServices.discord;
     if (youtubeServiceToggle) youtubeServiceToggle.checked = enabledServices.youtube;
-    if (telegramServiceToggle) telegramServiceToggle.checked = enabledServices.telegram;
+    if (telegramWebServiceToggle) telegramWebServiceToggle.checked = enabledServices.telegramWeb;
+    if (telegramDesktopServiceToggle) telegramDesktopServiceToggle.checked = enabledServices.telegramDesktop;
+    updateServiceChipVisuals();
+  } catch (e) {}
+}
+
+async function loadProxyRegistryStatus() {
+  try {
+    if (!window.api?.getProxyRegistryStatus) return;
+    const status = await window.api.getProxyRegistryStatus();
+    if (status?.found && staleProxyBanner) {
+      staleProxyBanner.style.display = 'flex';
+    }
   } catch (e) {}
 }
 
@@ -781,14 +840,16 @@ function updateServiceChipVisuals() {
 }
 
 function updateServiceBadgesVisibility() {
-  const badges = {
-    discord: serviceBadges?.querySelector('.service-badge.discord'),
-    youtube: serviceBadges?.querySelector('.service-badge.youtube'),
-    telegram: serviceBadges?.querySelector('.service-badge.telegram')
-  };
-  if (badges.discord) badges.discord.style.display = enabledServices.discord ? '' : 'none';
-  if (badges.youtube) badges.youtube.style.display = enabledServices.youtube ? '' : 'none';
-  if (badges.telegram) badges.telegram.style.display = enabledServices.telegram ? '' : 'none';
+  const discordBadge = serviceBadges?.querySelector('.service-badge.discord');
+  const youtubeBadge = serviceBadges?.querySelector('.service-badge.youtube');
+  const tgWebBadge = document.getElementById('badgeTelegramWeb');
+  const tgDesktopBadge = document.getElementById('badgeTelegramDesktop');
+
+  if (discordBadge) discordBadge.style.display = enabledServices.discord ? '' : 'none';
+  if (youtubeBadge) youtubeBadge.style.display = enabledServices.youtube ? '' : 'none';
+  if (tgWebBadge) tgWebBadge.style.display = enabledServices.telegramWeb ? '' : 'none';
+  // TG Desktop badge only shown when tglock is running
+  if (tgDesktopBadge) tgDesktopBadge.style.display = (enabledServices.telegramDesktop && tglockRunning) ? '' : 'none';
 }
 
 function renderDomainList(type) {

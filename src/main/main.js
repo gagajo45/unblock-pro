@@ -1,10 +1,12 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, dialog, shell } = require('electron');
 const path = require('path');
 const { spawn, exec, execSync } = require('child_process');
 const fs = require('fs');
 const https = require('https');
+const net = require('net');
 const dns = require('dns');
 const tls = require('tls');
+const crypto = require('crypto');
 const sudo = require('sudo-prompt');
 
 dns.setDefaultResultOrder('ipv4first');
@@ -25,6 +27,11 @@ let strategyProgress = null; // { current: N, total: M, name: '...' }
 let logEntries = []; // strategy testing log for UI
 let hostListsDir = null; // directory with host list files for strategies
 let isSearching = false; // strategy search in progress
+let tgUnlockProcess = null; // kept for compatibility (null — no external process)
+let tgProxyServer = null; // built-in SOCKS5→WSS Telegram Desktop proxy server
+
+const TGLOCK_PORT = 1080; // standard SOCKS5 port (matches tg://socks deep-link default)
+const REGISTRY_KEY = 'HKCU\\Software\\UnblockPro';
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -38,7 +45,7 @@ function loadSettings() {
       return JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     }
   } catch (e) {}
-  return { autoStart: false, autoConnect: false, selectedStrategy: 'auto', lastWorkingStrategy: null, enabledServices: { discord: true, youtube: true, telegram: true } };
+  return { autoStart: false, autoConnect: false, selectedStrategy: 'auto', lastWorkingStrategy: null, enabledServices: { discord: true, youtube: true, telegramWeb: true, telegramDesktop: true } };
 }
 
 function saveSettings(settings) {
@@ -1503,7 +1510,7 @@ async function downloadAndExtractBinaries() {
     
     // Cleanup
     fs.rmSync(tempDir, { recursive: true, force: true });
-    
+
     isDownloading = false;
     sendStatus();
     return { success: true };
@@ -1534,6 +1541,425 @@ async function downloadAndExtractBinaries() {
     
     return { success: false, error: errorMsg };
   }
+}
+
+// ============= REGISTRY FUNCTIONS (Windows) =============
+
+function writeProxyRegistry() {
+  if (process.platform !== 'win32') return;
+  try {
+    execSync(`reg add "${REGISTRY_KEY}" /v ProxyConfigured /t REG_DWORD /d 1 /f`, { stdio: 'pipe' });
+    execSync(`reg add "${REGISTRY_KEY}" /v ProxyPort /t REG_DWORD /d ${TGLOCK_PORT} /f`, { stdio: 'pipe' });
+    execSync(`reg add "${REGISTRY_KEY}" /v ProxySetAt /t REG_SZ /d "${new Date().toISOString()}" /f`, { stdio: 'pipe' });
+  } catch (e) {
+    sendLog({ type: 'warning', message: `Не удалось записать реестровый ключ: ${e.message}` });
+  }
+}
+
+function clearProxyRegistry() {
+  if (process.platform !== 'win32') return;
+  try {
+    execSync(`reg delete "${REGISTRY_KEY}" /f`, { stdio: 'pipe' });
+  } catch (e) {}
+}
+
+function checkProxyRegistry() {
+  if (process.platform !== 'win32') return { found: false };
+  try {
+    const output = execSync(`reg query "${REGISTRY_KEY}"`, { stdio: 'pipe', encoding: 'utf8' });
+    const portMatch = output.match(/ProxyPort\s+REG_DWORD\s+0x([0-9a-fA-F]+)/);
+    const setAtMatch = output.match(/ProxySetAt\s+REG_SZ\s+(.+)/);
+    return {
+      found: output.includes('ProxyConfigured'),
+      port: portMatch ? parseInt(portMatch[1], 16) : TGLOCK_PORT,
+      setAt: setAtMatch ? setAtMatch[1].trim() : null
+    };
+  } catch (e) {
+    return { found: false };
+  }
+}
+
+// ============= TELEGRAM DESKTOP SOCKS5→WSS PROXY (pure Node.js, no external binary) =============
+//
+// Implements the same algorithm as github.com/by-sonic/tglock:
+//   - Listen on SOCKS5 port 1080
+//   - For Telegram IPs: read 64-byte obfuscated2 init, extract DC (AES-256-CTR),
+//     tunnel via WSS to kws{dc}.web.telegram.org/apiws
+//   - For non-Telegram: direct TCP passthrough
+
+// Telegram IP → DC mapping (same as tglock source)
+function getTelegramDC(ip) {
+  const p = ip.split('.').map(Number);
+  if (p.length !== 4 || p.some(isNaN)) return null;
+  const [a, b, c] = p;
+  if (a === 149 && b === 154) {
+    if (c >= 160 && c <= 163) return 1;
+    if (c >= 164 && c <= 167) return 2;
+    if (c >= 168 && c <= 171) return 3;
+    if (c >= 172 && c <= 175) return 1;
+    return 2;
+  }
+  if (a === 91 && b === 108) {
+    if (c >= 56 && c <= 59) return 5;
+    if (c >= 8 && c <= 11) return 3;
+    if (c >= 12 && c <= 15) return 4;
+    return 2;
+  }
+  if ((a === 91 && b === 105) || (a === 185 && b === 76)) return 2;
+  return null;
+}
+
+// Extract DC number from obfuscated2 64-byte init packet via AES-256-CTR
+function extractDCFromObf2(buf) {
+  try {
+    if (buf.length < 64) return null;
+    const key = buf.slice(8, 40);
+    const iv = buf.slice(40, 56);
+    const decipher = crypto.createDecipheriv('aes-256-ctr', key, iv);
+    const dec = Buffer.concat([decipher.update(buf.slice(0, 64)), decipher.final()]);
+    const dcId = dec.readInt32LE(60);
+    const dc = Math.abs(dcId);
+    return (dc >= 1 && dc <= 5) ? dc : null;
+  } catch (e) { return null; }
+}
+
+// WebSocket frame encoder — client→server (masked)
+function wsEncodeFrame(data) {
+  const len = data.length;
+  const mask = crypto.randomBytes(4);
+  let header;
+  let maskOff;
+  if (len < 126) {
+    header = Buffer.allocUnsafe(6);
+    header[1] = 0x80 | len;
+    maskOff = 2;
+  } else if (len < 65536) {
+    header = Buffer.allocUnsafe(8);
+    header[1] = 0xFE;
+    header.writeUInt16BE(len, 2);
+    maskOff = 4;
+  } else {
+    header = Buffer.allocUnsafe(14);
+    header[1] = 0xFF;
+    header.writeBigUInt64BE(BigInt(len), 2);
+    maskOff = 10;
+  }
+  header[0] = 0x82; // FIN + binary opcode
+  mask.copy(header, maskOff);
+  const masked = Buffer.allocUnsafe(len);
+  for (let i = 0; i < len; i++) masked[i] = data[i] ^ mask[i % 4];
+  return Buffer.concat([header, masked]);
+}
+
+// WebSocket frame decoder — server→client (unmasked)
+function wsDecodeFrames(buf) {
+  const frames = [];
+  let pos = 0;
+  while (pos + 2 <= buf.length) {
+    const opcode = buf[pos] & 0x0F;
+    const masked = (buf[pos + 1] & 0x80) !== 0;
+    let payloadLen = buf[pos + 1] & 0x7F;
+    let extLen = 0;
+    if (payloadLen === 126) { if (pos + 4 > buf.length) break; payloadLen = buf.readUInt16BE(pos + 2); extLen = 2; }
+    else if (payloadLen === 127) { if (pos + 10 > buf.length) break; payloadLen = Number(buf.readBigUInt64BE(pos + 2)); extLen = 8; }
+    const headerLen = 2 + extLen + (masked ? 4 : 0);
+    if (pos + headerLen + payloadLen > buf.length) break;
+    let payload = buf.slice(pos + headerLen, pos + headerLen + payloadLen);
+    if (masked) {
+      const mk = buf.slice(pos + 2 + extLen, pos + 2 + extLen + 4);
+      payload = Buffer.from(payload);
+      for (let i = 0; i < payload.length; i++) payload[i] ^= mk[i % 4];
+    }
+    frames.push({ opcode, payload });
+    pos += headerLen + payloadLen;
+  }
+  return { frames, remaining: buf.slice(pos) };
+}
+
+// Simple buffered reader for a net.Socket (keeps data in order)
+function createReader(socket) {
+  const chunks = [];
+  let byteCount = 0;
+  const waiters = [];
+  let socketDead = false;
+  let deathErr = null;
+
+  const die = (err) => {
+    socketDead = true;
+    deathErr = err || new Error('Socket closed');
+    waiters.splice(0).forEach(w => w.reject(deathErr));
+  };
+
+  socket.on('data', (chunk) => {
+    chunks.push(chunk);
+    byteCount += chunk.length;
+    while (waiters.length > 0 && byteCount >= waiters[0].n) {
+      const { n, resolve } = waiters.shift();
+      let out = Buffer.allocUnsafe(n);
+      let written = 0;
+      while (written < n) {
+        const head = chunks[0];
+        const need = n - written;
+        if (head.length <= need) {
+          head.copy(out, written);
+          written += head.length;
+          byteCount -= head.length;
+          chunks.shift();
+        } else {
+          head.copy(out, written, 0, need);
+          chunks[0] = head.slice(need);
+          byteCount -= need;
+          written += need;
+        }
+      }
+      resolve(out);
+    }
+  });
+  socket.on('error', die);
+  socket.on('close', () => die());
+
+  return {
+    read(n, timeoutMs = 15000) {
+      if (socketDead) return Promise.reject(deathErr);
+      if (byteCount >= n) {
+        // Already have enough — resolve synchronously
+        return new Promise((resolve) => {
+          let out = Buffer.allocUnsafe(n);
+          let written = 0;
+          while (written < n) {
+            const head = chunks[0];
+            const need = n - written;
+            if (head.length <= need) {
+              head.copy(out, written);
+              written += head.length;
+              byteCount -= head.length;
+              chunks.shift();
+            } else {
+              head.copy(out, written, 0, need);
+              chunks[0] = head.slice(need);
+              byteCount -= need;
+              written += need;
+            }
+          }
+          resolve(out);
+        });
+      }
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          const idx = waiters.findIndex(w => w.resolve === resolve);
+          if (idx !== -1) waiters.splice(idx, 1);
+          reject(new Error(`Read timeout (need ${n} bytes)`));
+        }, timeoutMs);
+        waiters.push({
+          n,
+          resolve: (data) => { clearTimeout(timer); resolve(data); },
+          reject: (e) => { clearTimeout(timer); reject(e); }
+        });
+      });
+    }
+  };
+}
+
+async function handleTgProxyClient(clientSock) {
+  clientSock.setNoDelay(true);
+  const reader = createReader(clientSock);
+
+  try {
+    // SOCKS5 auth negotiation
+    const authHdr = await reader.read(2);
+    if (authHdr[0] !== 0x05) return;
+    await reader.read(authHdr[1]); // discard methods
+    clientSock.write(Buffer.from([0x05, 0x00])); // no auth
+
+    // SOCKS5 CONNECT request
+    const reqHdr = await reader.read(4);
+    if (reqHdr[1] !== 0x01) {
+      clientSock.write(Buffer.from([0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0]));
+      return;
+    }
+
+    let destAddr, destPort;
+    if (reqHdr[3] === 0x01) { // IPv4
+      const ip = await reader.read(4);
+      const pt = await reader.read(2);
+      destAddr = Array.from(ip).join('.');
+      destPort = pt.readUInt16BE(0);
+    } else if (reqHdr[3] === 0x03) { // Domain
+      const dlen = await reader.read(1);
+      const dom = await reader.read(dlen[0]);
+      const pt = await reader.read(2);
+      destAddr = dom.toString();
+      destPort = pt.readUInt16BE(0);
+    } else if (reqHdr[3] === 0x04) { // IPv6
+      const ip6 = await reader.read(16);
+      const pt = await reader.read(2);
+      const segs = [];
+      for (let i = 0; i < 16; i += 2) segs.push(ip6.readUInt16BE(i).toString(16));
+      destAddr = segs.join(':');
+      destPort = pt.readUInt16BE(0);
+    } else {
+      clientSock.write(Buffer.from([0x05, 0x08, 0x00, 0x01, 0, 0, 0, 0, 0, 0]));
+      return;
+    }
+
+    // SOCKS5 success reply
+    clientSock.write(Buffer.from([0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0x04, 0x38]));
+
+    const tgDC = getTelegramDC(destAddr);
+
+    if (tgDC !== null) {
+      // Telegram traffic: WSS tunnel
+      const init64 = await reader.read(64);
+      const dc = extractDCFromObf2(init64) || tgDC;
+      await tunnelViaTgWS(clientSock, dc, init64);
+    } else {
+      // Non-Telegram: direct TCP
+      const remote = await new Promise((resolve, reject) => {
+        const s = net.createConnection({ host: destAddr, port: destPort });
+        s.setTimeout(10000);
+        s.once('connect', () => { s.setTimeout(0); resolve(s); });
+        s.once('timeout', () => reject(new Error('Connect timeout')));
+        s.once('error', reject);
+      });
+      remote.setNoDelay(true);
+      clientSock.pipe(remote);
+      remote.pipe(clientSock);
+      await new Promise(res => {
+        clientSock.once('close', res); clientSock.once('error', res);
+        remote.once('close', res); remote.once('error', res);
+      });
+      try { clientSock.destroy(); } catch (e) {}
+      try { remote.destroy(); } catch (e) {}
+    }
+  } catch (e) {
+    try { clientSock.destroy(); } catch (err) {}
+  }
+}
+
+async function tunnelViaTgWS(clientSock, dc, init64) {
+  const wsHost = `kws${dc}.web.telegram.org`;
+  const wsKey = crypto.randomBytes(16).toString('base64');
+
+  return new Promise((resolve) => {
+    const tlsConn = tls.connect({ host: wsHost, port: 443, servername: wsHost, rejectUnauthorized: false });
+
+    let upgraded = false;
+    let httpBuf = Buffer.alloc(0);
+    let wsBuf = Buffer.alloc(0);
+
+    const cleanup = () => {
+      try { tlsConn.destroy(); } catch (e) {}
+      try { clientSock.destroy(); } catch (e) {}
+      resolve();
+    };
+
+    tlsConn.once('error', cleanup);
+    tlsConn.once('close', cleanup);
+    clientSock.once('error', cleanup);
+    clientSock.once('close', () => { try { tlsConn.destroy(); } catch (e) {} resolve(); });
+
+    tlsConn.once('secureConnect', () => {
+      const upgradeReq = [
+        `GET /apiws HTTP/1.1`,
+        `Host: ${wsHost}`,
+        `Upgrade: websocket`,
+        `Connection: Upgrade`,
+        `Sec-WebSocket-Key: ${wsKey}`,
+        `Sec-WebSocket-Version: 13`,
+        `Sec-WebSocket-Protocol: binary`,
+        '', ''
+      ].join('\r\n');
+      tlsConn.write(upgradeReq);
+    });
+
+    tlsConn.on('data', (data) => {
+      if (!upgraded) {
+        httpBuf = Buffer.concat([httpBuf, data]);
+        const end = httpBuf.indexOf('\r\n\r\n');
+        if (end === -1) return;
+        const statusLine = httpBuf.slice(0, httpBuf.indexOf('\r\n')).toString();
+        if (!statusLine.includes('101')) { cleanup(); return; }
+        upgraded = true;
+
+        // Send the 64-byte init packet as first WS binary frame
+        tlsConn.write(wsEncodeFrame(init64));
+
+        // Forward client → WS
+        clientSock.on('data', (chunk) => {
+          if (!tlsConn.destroyed) tlsConn.write(wsEncodeFrame(chunk));
+        });
+
+        // Process any data that arrived after HTTP headers
+        wsBuf = httpBuf.slice(end + 4);
+        processWsData();
+      } else {
+        wsBuf = Buffer.concat([wsBuf, data]);
+        processWsData();
+      }
+    });
+
+    function processWsData() {
+      const { frames, remaining } = wsDecodeFrames(wsBuf);
+      wsBuf = remaining;
+      for (const { opcode, payload } of frames) {
+        if (opcode === 0x02 || opcode === 0x01 || opcode === 0x00) {
+          if (!clientSock.destroyed && payload.length > 0) clientSock.write(payload);
+        } else if (opcode === 0x09) {
+          // Ping → Pong
+          const pong = Buffer.allocUnsafe(payload.length + 6);
+          pong[0] = 0x8A;
+          pong[1] = 0x80 | payload.length;
+          const mask = crypto.randomBytes(4);
+          mask.copy(pong, 2);
+          for (let i = 0; i < payload.length; i++) pong[6 + i] = payload[i] ^ mask[i % 4];
+          if (!tlsConn.destroyed) tlsConn.write(pong);
+        } else if (opcode === 0x08) {
+          cleanup();
+          return;
+        }
+      }
+    }
+  });
+}
+
+async function startTgUnlock() {
+  if (process.platform !== 'win32') return false;
+  if (tgProxyServer) return true; // already running
+
+  // Kill any leftover tg_unblock.exe or anything holding port 1080
+  try { execSync('taskkill /F /IM tg_unblock.exe 2>nul', { stdio: 'pipe' }); } catch (e) {}
+
+  // If port is still in use, wait a moment and retry once
+  const tryBind = () => new Promise((resolve) => {
+    const srv = net.createServer((socket) => {
+      handleTgProxyClient(socket).catch(() => { try { socket.destroy(); } catch (e) {} });
+    });
+    srv.once('error', (e) => resolve({ ok: false, err: e.message }));
+    srv.listen(TGLOCK_PORT, '127.0.0.1', () => resolve({ ok: true, srv }));
+  });
+
+  let result = await tryBind();
+  if (!result.ok) {
+    // Wait 1 second and retry (old process may still be dying)
+    await new Promise(r => setTimeout(r, 1000));
+    result = await tryBind();
+  }
+
+  if (!result.ok) {
+    sendLog({ type: 'error', message: `Telegram Desktop прокси: порт ${TGLOCK_PORT} занят — ${result.err}` });
+    return false;
+  }
+
+  tgProxyServer = result.srv;
+  return true;
+}
+
+function stopTgUnlock() {
+  if (tgProxyServer) {
+    tgProxyServer.close();
+    tgProxyServer = null;
+  }
+  clearProxyRegistry();
 }
 
 // ============= UDP BLOCKING (macOS) =============
@@ -1706,9 +2132,14 @@ function testSingleConnection(port, timeoutSec, url) {
 }
 
 async function testProxyConnection(port = 1080, timeoutSec = 8, enabledServices = null) {
-  const svc = enabledServices || { discord: true, youtube: true, telegram: true };
+  const svc = enabledServices || { discord: true, youtube: true, telegramWeb: true, telegramDesktop: true };
+  // Backwards-compat: if old 'telegram' key present, map it
+  if (svc.telegram !== undefined && svc.telegramWeb === undefined) {
+    svc.telegramWeb = svc.telegram;
+    svc.telegramDesktop = svc.telegram;
+  }
   // Nothing enabled — skip testing entirely
-  if (!svc.discord && !svc.youtube && !svc.telegram) return true;
+  if (!svc.discord && !svc.youtube && !svc.telegramWeb && !svc.telegramDesktop) return true;
 
   // Test YouTube
   if (svc.youtube) {
@@ -1734,12 +2165,12 @@ async function testProxyConnection(port = 1080, timeoutSec = 8, enabledServices 
     }
   }
 
-  // Test Telegram
-  if (svc.telegram) {
+  // Test Telegram Web
+  if (svc.telegramWeb) {
     let tgOk = await testSingleConnection(port, timeoutSec, 'https://t.me/');
     if (!tgOk) tgOk = await testSingleConnection(port, timeoutSec, 'https://telegram.org/');
     if (!tgOk) {
-      sendLog({ type: 'warning', message: 'Telegram не прошёл через прокси — стратегия не подходит' });
+      sendLog({ type: 'warning', message: 'Telegram Web не прошёл через прокси — стратегия не подходит' });
       return false;
     }
   }
@@ -1817,11 +2248,106 @@ function testDiscordWebSocketGateway(timeoutSec = 12) {
   });
 }
 
+// Test Telegram Desktop DC connectivity through local SOCKS5 proxy (tglock on port 1090)
+function testTelegramDesktopDC(socksPort = TGLOCK_PORT, timeoutSec = 10) {
+  const dcHosts = [
+    'pluto.web.telegram.org',
+    'venus.web.telegram.org',
+    'aurora.web.telegram.org',
+    'vesta.web.telegram.org',
+    'flora.web.telegram.org'
+  ];
+  const timeoutMs = timeoutSec * 1000;
+
+  const testOneDC = (host) => new Promise((resolve) => {
+    let resolved = false;
+    const done = (ok) => {
+      if (resolved) return;
+      resolved = true;
+      try { socket.destroy(); } catch (e) {}
+      resolve(ok);
+    };
+
+    let socket;
+    try {
+      // Connect to SOCKS5 proxy
+      socket = net.createConnection({ host: '127.0.0.1', port: socksPort });
+      socket.setTimeout(timeoutMs);
+      socket.on('timeout', () => done(false));
+      socket.on('error', () => done(false));
+
+      socket.once('connect', () => {
+        // SOCKS5 handshake: no auth
+        socket.write(Buffer.from([0x05, 0x01, 0x00]));
+      });
+
+      let step = 0;
+      socket.on('data', (data) => {
+        if (step === 0) {
+          // Server choice: 0x05 0x00 = no auth
+          if (data[0] === 0x05 && data[1] === 0x00) {
+            step = 1;
+            // SOCKS5 CONNECT request to host:443
+            const hostBuf = Buffer.from(host);
+            const req = Buffer.alloc(7 + hostBuf.length);
+            req[0] = 0x05; req[1] = 0x01; req[2] = 0x00; req[3] = 0x03;
+            req[4] = hostBuf.length;
+            hostBuf.copy(req, 5);
+            req[5 + hostBuf.length] = 0x01; req[6 + hostBuf.length] = 0xBB; // port 443
+            socket.write(req);
+          } else {
+            done(false);
+          }
+        } else if (step === 1) {
+          // SOCKS5 response: 0x05 0x00 = success
+          if (data[0] === 0x05 && data[1] === 0x00) {
+            step = 2;
+            // Perform TLS handshake (WebSocket upgrade to /apiws)
+            const key = Buffer.allocUnsafe(16);
+            for (let i = 0; i < 16; i++) key[i] = Math.floor(Math.random() * 256);
+            const tlsSocket = tls.connect({
+              socket,
+              servername: host,
+              rejectUnauthorized: false
+            }, () => {
+              const wsReq =
+                `GET /apiws HTTP/1.1\r\n` +
+                `Host: ${host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n` +
+                `Sec-WebSocket-Key: ${key.toString('base64')}\r\nSec-WebSocket-Version: 13\r\n\r\n`;
+              tlsSocket.write(wsReq);
+            });
+            let wsData = '';
+            tlsSocket.on('data', (chunk) => {
+              wsData += chunk.toString();
+              if (wsData.includes('\r\n\r\n')) {
+                done(wsData.split('\r\n')[0].includes('101'));
+              }
+            });
+            tlsSocket.on('error', () => done(false));
+          } else {
+            done(false);
+          }
+        }
+      });
+    } catch (e) {
+      resolve(false);
+    }
+  });
+
+  return Promise.any(dcHosts.map(h => testOneDC(h).then(ok => ok ? ok : Promise.reject(false))))
+    .catch(() => false);
+}
+
 async function testDirectConnection(timeoutSec = 10, enabledServices = null) {
   // winws works at driver level — test with direct HTTPS requests (no SOCKS proxy)
-  const svc = enabledServices || { discord: true, youtube: true, telegram: true };
+  const svc = enabledServices || { discord: true, youtube: true, telegramWeb: true, telegramDesktop: true };
+  // Backwards-compat: if old 'telegram' key present, map it
+  if (svc.telegram !== undefined && svc.telegramWeb === undefined) {
+    svc.telegramWeb = svc.telegram;
+    svc.telegramDesktop = svc.telegram;
+  }
   // Nothing enabled — skip testing entirely
-  if (!svc.discord && !svc.youtube && !svc.telegram) return true;
+  if (!svc.discord && !svc.youtube && !svc.telegramWeb && !svc.telegramDesktop) return true;
 
   // Test YouTube (hardest to unblock)
   if (svc.youtube) {
@@ -1874,15 +2400,15 @@ async function testDirectConnection(timeoutSec = 10, enabledServices = null) {
     }
   }
 
-  // Test Telegram
-  if (svc.telegram) {
-    const tgEndpoints = ['https://t.me/', 'https://telegram.org/', 'https://api.telegram.org/'];
+  // Test Telegram Web
+  if (svc.telegramWeb) {
+    const tgEndpoints = ['https://t.me/', 'https://telegram.org/', 'https://web.telegram.org/'];
     let tgOk = false;
     for (const url of tgEndpoints) {
       if (await testSingleDirectConnection(url, timeoutSec)) { tgOk = true; break; }
     }
     if (!tgOk) {
-      sendLog({ type: 'warning', message: 'Telegram не прошёл — стратегия не подходит' });
+      sendLog({ type: 'warning', message: 'Telegram Web не прошёл — стратегия не подходит' });
       return false;
     }
   }
@@ -1961,7 +2487,11 @@ const PS_TEST_GATEWAY_WS = [
 ].join('\r\n');
 
 async function startProxyWindowsElevated(finalBinaryPath, strategies, totalStrategies, enabledServices = null) {
-  const svc = enabledServices || { discord: true, youtube: true, telegram: true };
+  const svc = enabledServices || { discord: true, youtube: true, telegramWeb: true, telegramDesktop: true };
+  // Backwards-compat
+  if (svc.telegram !== undefined && svc.telegramWeb === undefined) {
+    svc.telegramWeb = svc.telegram; svc.telegramDesktop = svc.telegram;
+  }
   const binDirectory = path.dirname(finalBinaryPath);
   const tempDir = app.getPath('temp');
   const resultFile = path.join(tempDir, 'unblock-result.txt');
@@ -2013,7 +2543,7 @@ async function startProxyWindowsElevated(finalBinaryPath, strategies, totalStrat
     bat += 'timeout /t 4 /nobreak >nul\r\n';
 
     // If nothing is enabled, accept any strategy immediately
-    if (!svc.discord && !svc.youtube && !svc.telegram) {
+    if (!svc.discord && !svc.youtube && !svc.telegramWeb && !svc.telegramDesktop) {
       bat += `echo WORKS:${s.name}> "%RESULT%"\r\n`;
       bat += 'goto :end\r\n';
       bat += ':strat_next_' + i + '\r\n';
@@ -2054,8 +2584,8 @@ async function startProxyWindowsElevated(finalBinaryPath, strategies, totalStrat
       bat += ')\r\n';
     }
 
-    // Test Telegram if enabled
-    if (svc.telegram) {
+    // Test Telegram Web if enabled
+    if (svc.telegramWeb) {
       bat += 'set "TG_OK=0"\r\n';
       bat += `powershell -command "try { $r = Invoke-WebRequest -Uri 'https://t.me/' -TimeoutSec 10 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
       bat += 'if !errorlevel! equ 0 set "TG_OK=1"\r\n';
@@ -2152,6 +2682,27 @@ async function startProxyWindowsElevated(finalBinaryPath, strategies, totalStrat
     clearError();
     // Save as last working strategy
     const s = loadSettings(); s.lastWorkingStrategy = result.strategy; saveSettings(s);
+
+    // Start tglock for Telegram Desktop if enabled
+    if (svc.telegramDesktop) {
+      sendLog({ type: 'info', message: `Telegram Desktop включён — запускаю SOCKS5 прокси (порт ${TGLOCK_PORT})…` });
+      const tgStarted = await startTgUnlock();
+      if (tgStarted) {
+        writeProxyRegistry();
+        sendLog({ type: 'success', message: `✓ Telegram Desktop прокси активен на 127.0.0.1:${TGLOCK_PORT}` });
+        if (mainWindow) mainWindow.webContents.send('tglock-started', { port: TGLOCK_PORT });
+        // Auto-open Telegram Desktop with proxy config
+        setTimeout(() => {
+          shell.openExternal(`tg://socks?server=127.0.0.1&port=${TGLOCK_PORT}`);
+          sendLog({ type: 'info', message: 'Telegram Desktop открыт с настройкой прокси — подтвердите в приложении' });
+        }, 800);
+      } else {
+        sendLog({ type: 'warning', message: 'Telegram Desktop прокси не запустился — приложение Telegram может не работать' });
+      }
+    } else {
+      sendLog({ type: 'info', message: 'Telegram Desktop отключён в настройках — tglock пропущен' });
+    }
+
     updateTrayMenu();
     sendLog({ type: 'success', message: `Стратегия ${result.strategy} работает!` });
     sendStatus({ searching: false });
@@ -2232,10 +2783,17 @@ async function startProxy() {
   
   // Check if user selected a specific strategy
   const settings = loadSettings();
-  const enabledServices = settings.enabledServices && typeof settings.enabledServices === 'object'
-    ? { discord: true, youtube: true, telegram: true, ...settings.enabledServices }
-    : { discord: true, youtube: true, telegram: true };
-  sendLog({ type: 'info', message: `Проверяем: ${[enabledServices.discord && 'Discord', enabledServices.youtube && 'YouTube', enabledServices.telegram && 'Telegram'].filter(Boolean).join(', ') || 'все сервисы'}` });
+  const rawSvc = settings.enabledServices && typeof settings.enabledServices === 'object' ? settings.enabledServices : {};
+  // Migrate old 'telegram' key
+  const enabledServices = {
+    discord: true, youtube: true, telegramWeb: true, telegramDesktop: true,
+    ...rawSvc,
+    // backwards compat: if old settings only had 'telegram' key
+    ...(rawSvc.telegram !== undefined && rawSvc.telegramWeb === undefined
+      ? { telegramWeb: rawSvc.telegram, telegramDesktop: rawSvc.telegram }
+      : {})
+  };
+  sendLog({ type: 'info', message: `Проверяем: ${[enabledServices.discord && 'Discord', enabledServices.youtube && 'YouTube', enabledServices.telegramWeb && 'Telegram Web', enabledServices.telegramDesktop && 'Telegram Desktop'].filter(Boolean).join(', ') || 'все сервисы'}` });
   let strategies = allStrategies;
   let singleStrategy = false;
   
@@ -2518,6 +3076,26 @@ async function startProxy() {
             }
           });
 
+          // Start tglock for Telegram Desktop if enabled
+          if (enabledServices.telegramDesktop) {
+            sendLog({ type: 'info', message: `Telegram Desktop включён — запускаю SOCKS5 прокси (порт ${TGLOCK_PORT})…` });
+            const tgStarted = await startTgUnlock();
+            if (tgStarted) {
+              writeProxyRegistry();
+              sendLog({ type: 'success', message: `✓ Telegram Desktop прокси активен на 127.0.0.1:${TGLOCK_PORT}` });
+              if (mainWindow) mainWindow.webContents.send('tglock-started', { port: TGLOCK_PORT });
+              // Auto-open Telegram Desktop with proxy config
+              setTimeout(() => {
+                shell.openExternal(`tg://socks?server=127.0.0.1&port=${TGLOCK_PORT}`);
+                sendLog({ type: 'info', message: 'Telegram Desktop открыт с настройкой прокси — подтвердите в приложении' });
+              }, 800);
+            } else {
+              sendLog({ type: 'warning', message: 'Telegram Desktop прокси не запустился — приложение Telegram может не работать' });
+            }
+          } else {
+            sendLog({ type: 'info', message: 'Telegram Desktop отключён в настройках — tglock пропущен' });
+          }
+
           updateTrayMenu();
           sendLog({ type: 'success', message: `Стратегия ${strategy.name} работает!` });
           sendStatus({ searching: false });
@@ -2547,6 +3125,9 @@ async function startProxy() {
 }
 
 function stopProxy() {
+  // Stop tglock (Telegram Desktop proxy) and clear registry marker
+  stopTgUnlock();
+
   // Disable system proxy FIRST (before killing tpws)
   disableSystemProxy();
   
@@ -3016,7 +3597,6 @@ ipcMain.handle('toggle-maximize-window', () => {
 });
 
 ipcMain.handle('open-external', (event, url) => {
-  const { shell } = require('electron');
   if (url && (url.startsWith('https://') || url.startsWith('http://'))) {
     shell.openExternal(url);
   }
@@ -3666,10 +4246,15 @@ ipcMain.handle('set-custom-domains', (event, { include, exclude }) => {
 
 ipcMain.handle('get-enabled-services', () => {
   const settings = loadSettings();
+  const svc = settings.enabledServices || {};
+  // Migrate old 'telegram' key
+  const telegramWeb = svc.telegramWeb !== undefined ? svc.telegramWeb !== false : (svc.telegram !== undefined ? svc.telegram !== false : true);
+  const telegramDesktop = svc.telegramDesktop !== undefined ? svc.telegramDesktop !== false : (svc.telegram !== undefined ? svc.telegram !== false : true);
   return {
-    discord: settings.enabledServices?.discord !== false,
-    youtube: settings.enabledServices?.youtube !== false,
-    telegram: settings.enabledServices?.telegram !== false
+    discord: svc.discord !== false,
+    youtube: svc.youtube !== false,
+    telegramWeb,
+    telegramDesktop
   };
 });
 
@@ -3678,10 +4263,29 @@ ipcMain.handle('set-enabled-services', (event, services) => {
   settings.enabledServices = {
     discord: services?.discord !== false,
     youtube: services?.youtube !== false,
-    telegram: services?.telegram !== false
+    telegramWeb: services?.telegramWeb !== false,
+    telegramDesktop: services?.telegramDesktop !== false
   };
   saveSettings(settings);
   return { success: true };
+});
+
+ipcMain.handle('get-proxy-registry-status', () => {
+  return checkProxyRegistry();
+});
+
+ipcMain.handle('clear-proxy-registry', () => {
+  stopTgUnlock();
+  return { success: true };
+});
+
+ipcMain.handle('open-telegram-with-proxy', () => {
+  shell.openExternal(`tg://socks?server=127.0.0.1&port=${TGLOCK_PORT}`);
+  return { success: true };
+});
+
+ipcMain.handle('get-tglock-status', () => {
+  return { running: tgProxyServer !== null, port: TGLOCK_PORT };
 });
 
 // ============= SINGLE INSTANCE LOCK =============
@@ -3737,6 +4341,27 @@ if (!gotTheLock) {
     // Portable: если запуск из temp, а основной exe старше — обновить основной
     setTimeout(() => { try { syncPortableTempToOriginal(); } catch (e) {} }, 3000);
 
+    // Migrate old 'telegram' enabledServices key to telegramWeb + telegramDesktop
+    try {
+      const s = loadSettings();
+      if (s.enabledServices && s.enabledServices.telegram !== undefined && s.enabledServices.telegramWeb === undefined) {
+        s.enabledServices.telegramWeb = s.enabledServices.telegram;
+        s.enabledServices.telegramDesktop = s.enabledServices.telegram;
+        delete s.enabledServices.telegram;
+        saveSettings(s);
+        sendLog({ type: 'info', message: 'Настройки Telegram мигрированы: telegramWeb + telegramDesktop' });
+      }
+    } catch (e) {}
+
+    // Check for stale proxy registry entry from a previous session crash
+    if (process.platform === 'win32') {
+      const regStatus = checkProxyRegistry();
+      if (regStatus.found) {
+        sendLog({ type: 'warning', message: `Найдены настройки прокси от предыдущего сеанса (порт ${regStatus.port}, установлено ${regStatus.setAt || 'неизвестно'})` });
+        sendStatus({ staleProxyRegistry: true, staleProxyPort: regStatus.port });
+      }
+    }
+
     // Apply saved auto-start setting
     const settings = loadSettings();
     applyAutoStart(settings.autoStart);
@@ -3780,6 +4405,7 @@ if (!gotTheLock) {
 
   // Ensure proxy cleanup on any exit scenario
   function emergencyCleanup() {
+    try { stopTgUnlock(); } catch (e) {}
     try { disableSystemProxy(); } catch (e) {}
     try { restoreDns(); } catch (e) {}
     try { disableQuicBlock(); } catch (e) {}

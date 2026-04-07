@@ -34,6 +34,17 @@
       </div>
     </div>
 
+    <!-- Stale proxy registry banner -->
+    <div class="stale-proxy-banner" id="staleProxyBanner" style="display: none;">
+      <div class="stale-proxy-info">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>Найдены настройки прокси Telegram от предыдущего сеанса</span>
+      </div>
+      <button type="button" class="stale-proxy-clear-btn" id="clearProxyRegistryBtn">Очистить</button>
+    </div>
+
     <!-- Admin warning (Windows portable without admin) -->
     <div class="admin-warning-banner" id="adminWarningBanner" style="display: none;">
       <div class="admin-warning-info">
@@ -90,11 +101,18 @@
             </svg>
             YouTube
           </span>
-          <span class="service-badge telegram">
+          <span class="service-badge telegram" id="badgeTelegramWeb">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
               <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
             </svg>
-            Telegram
+            TG Web
+          </span>
+          <span class="service-badge telegram-desktop" id="badgeTelegramDesktop" style="display: none;">
+            <svg width="16" height="14" viewBox="0 0 24 20" fill="currentColor">
+              <rect x="1" y="1" width="22" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/>
+              <path d="M8 15v3m8-3v3M5 18h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+            TG Desktop
           </span>
         </div>
       </div>
@@ -186,14 +204,28 @@
                 <path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </label>
-            <label class="service-chip telegram" title="Telegram">
-              <input type="checkbox" id="telegramServiceToggle" checked>
+            <label class="service-chip telegram" title="Telegram Web (браузер)">
+              <input type="checkbox" id="telegramWebServiceToggle" checked>
               <span class="chip-icon">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                   <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
                 </svg>
               </span>
-              <span class="chip-label">Telegram</span>
+              <span class="chip-label">TG Web</span>
+              <svg class="chip-check-icon" width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </label>
+            <label class="service-chip telegram-desktop" title="Telegram Desktop (приложение, SOCKS5 прокси)">
+              <input type="checkbox" id="telegramDesktopServiceToggle" checked>
+              <span class="chip-icon">
+                <svg width="14" height="12" viewBox="0 0 24 20" fill="currentColor" aria-hidden="true">
+                  <rect x="1" y="1" width="22" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/>
+                  <path d="M8 15v3m8-3v3M5 18h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  <path d="M8.5 5.5C9.3 4.5 10.6 4 12 4s2.7.5 3.5 1.5M7 8c1.1-1.5 2.8-2.5 5-2.5S17 6.5 18 8m-3.5 2.5a2.5 2.5 0 01-5 0" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                </svg>
+              </span>
+              <span class="chip-label">TG Desktop</span>
               <svg class="chip-check-icon" width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                 <path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
@@ -283,6 +315,12 @@
           Приложение автоматически находит рабочую стратегию обхода DPI для вашего провайдера и разблокирует Discord, YouTube, Telegram и другие сервисы. Всё работает локально, без VPN-серверов.
         </div>
         <div class="info-actions">
+          <button type="button" class="link-btn tg-proxy-btn" id="openTelegramWithProxyBtn" style="display: none;" title="Открыть Telegram Desktop и настроить SOCKS5 прокси автоматически">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+            </svg>
+            Открыть Telegram Desktop с прокси
+          </button>
           <button type="button" class="link-btn" id="updateHostsBtn" title="Обновляет hosts для Discord голоса и Telegram (нужны права админа)">
             Обновить hosts (Discord + Telegram)
           </button>

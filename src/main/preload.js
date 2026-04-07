@@ -42,9 +42,15 @@ contextBridge.exposeInMainWorld('api', {
   getCustomDomains: () => ipcRenderer.invoke('get-custom-domains'),
   setCustomDomains: (data) => ipcRenderer.invoke('set-custom-domains', data),
 
-  // Enabled services (Discord / YouTube / Telegram)
+  // Enabled services (Discord / YouTube / Telegram Web / Telegram Desktop)
   getEnabledServices: () => ipcRenderer.invoke('get-enabled-services'),
   setEnabledServices: (services) => ipcRenderer.invoke('set-enabled-services', services),
+
+  // Telegram Desktop proxy (tglock)
+  getProxyRegistryStatus: () => ipcRenderer.invoke('get-proxy-registry-status'),
+  clearProxyRegistry: () => ipcRenderer.invoke('clear-proxy-registry'),
+  openTelegramWithProxy: () => ipcRenderer.invoke('open-telegram-with-proxy'),
+  getTglockStatus: () => ipcRenderer.invoke('get-tglock-status'),
 
   // External links
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
@@ -66,5 +72,8 @@ contextBridge.exposeInMainWorld('api', {
   },
   onLogEntry: (callback) => {
     ipcRenderer.on('log-entry', (event, data) => callback(data));
+  },
+  onTglockStarted: (callback) => {
+    ipcRenderer.on('tglock-started', (event, data) => callback(data));
   }
 });
