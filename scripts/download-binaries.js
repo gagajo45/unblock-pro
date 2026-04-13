@@ -2,6 +2,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { extractZipWindows } = require('./extract-zip-windows.js');
 
 const ZAPRET_VERSION = 'v72.9';
 const ZAPRET_RELEASE_URL = `https://github.com/bol-van/zapret/releases/download/${ZAPRET_VERSION}`;
@@ -80,12 +81,14 @@ function extractArchive(archivePath, extractTo, platform) {
   if (platform === 'darwin' || archivePath.endsWith('.tar.gz')) {
     execSync(`tar -xzf "${archivePath}" -C "${extractTo}"`, { stdio: 'inherit' });
   } else if (archivePath.endsWith('.zip')) {
-    // Windows or zip file
-    try {
+    if (process.platform === 'win32') {
+      try {
+        execSync(`unzip -o "${archivePath}" -d "${extractTo}"`, { stdio: 'inherit' });
+      } catch (e) {
+        extractZipWindows(archivePath, extractTo);
+      }
+    } else {
       execSync(`unzip -o "${archivePath}" -d "${extractTo}"`, { stdio: 'inherit' });
-    } catch (e) {
-      // Try powershell on Windows
-      execSync(`powershell -command "Expand-Archive -Path '${archivePath}' -DestinationPath '${extractTo}' -Force"`, { stdio: 'inherit' });
     }
   }
 }

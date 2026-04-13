@@ -6,6 +6,7 @@ const https = require('https');
 const dns = require('dns');
 const tls = require('tls');
 const sudo = require('sudo-prompt');
+const { extractZipWindows } = require(path.join(__dirname, '..', '..', 'scripts', 'extract-zip-windows.js'));
 
 if (typeof dns.setDefaultResultOrder === 'function') {
   dns.setDefaultResultOrder('ipv4first');
@@ -1356,9 +1357,9 @@ async function downloadAndExtractBinaries() {
     // Download
     await downloadFile(downloadUrl, zipPath);
     
-    // Extract
+    // Extract (no Expand-Archive — требует PS5; на Win7 часто PS2)
     if (process.platform === 'win32') {
-      execSync(`powershell -command "Expand-Archive -Path '${zipPath}' -DestinationPath '${tempDir}' -Force"`, { stdio: 'pipe' });
+      extractZipWindows(zipPath, tempDir);
       
       // Archive has windows-x86_64/ (WinDivert64.sys) and windows-x86/ (WinDivert32.sys).
       // On 64-bit Windows we MUST use x86_64 — otherwise WinDivert64.sys is missing.
@@ -1398,9 +1399,9 @@ async function downloadAndExtractBinaries() {
         }
         
         // Unblock all files — Windows marks downloaded files with Zone.Identifier ADS
-        // which prevents kernel drivers (WinDivert64.sys) from loading
+        // which prevents kernel drivers (WinDivert64.sys) from loading (PS2: remove ADS, PS3+: Unblock-File)
         try {
-          execSync(`powershell -command "Get-ChildItem -Path '${platformDir}' | Unblock-File"`, { stdio: 'pipe' });
+          unblockDownloadedPlatformFiles(platformDir);
         } catch (e) {
           // Non-critical: unblock may fail if not needed
         }
@@ -1938,6 +1939,7 @@ function stopWinwsMonitor() {
 }
 
 // PowerShell script to test Discord gateway WebSocket handshake (used by elevated batch)
+// RNGCryptoServiceProvider — без Get-Random ( cmdlet только с PS 3+ )
 const PS_TEST_GATEWAY_WS = [
   '$hostname = "gateway.discord.gg"; $port = 443; $timeoutMs = 12000',
   'try {',
@@ -1949,7 +1951,10 @@ const PS_TEST_GATEWAY_WS = [
   '  $ssl = New-Object System.Net.Security.SslStream($stream, $false, { $true })',
   '  $ssl.ReadTimeout = $timeoutMs; $ssl.WriteTimeout = $timeoutMs',
   '  $ssl.AuthenticateAsClient($hostname)',
-  '  $key = [Convert]::ToBase64String((1..16 | ForEach-Object { Get-Random -Maximum 256 -Minimum 0 }) -as [byte[]])',
+  '  $rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider',
+  '  $keyBytes = New-Object byte[] 16',
+  '  $rng.GetBytes($keyBytes)',
+  '  $key = [Convert]::ToBase64String($keyBytes)',
   "  $req = \"GET /?v=10&encoding=json HTTP/1.1`r`nHost: $hostname`r`nUpgrade: websocket`r`nConnection: Upgrade`r`nSec-WebSocket-Key: $key`r`nSec-WebSocket-Version: 13`r`n`r`n\"",
   '  $buf = [System.Text.Encoding]::UTF8.GetBytes($req)',
   '  $ssl.Write($buf, 0, $buf.Length)',
@@ -1962,6 +1967,61 @@ const PS_TEST_GATEWAY_WS = [
   'exit 1'
 ].join('\r\n');
 
+// HTTP probe for elevated batch: Invoke-WebRequest только с PS3+; на PS2 — HttpWebRequest + TLS 1.2
+const PS_HTTP_CHECK = [
+  'param([Parameter(Mandatory=$true)][string]$Url, [int]$TimeoutSec = 12)',
+  '$ErrorActionPreference = "Stop"',
+  '$ua = "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"',
+  'try {',
+  '  if ($PSVersionTable.PSVersion.Major -ge 3) {',
+  '    $r = Invoke-WebRequest -Uri $Url -TimeoutSec $TimeoutSec -UseBasicParsing',
+  '    if ([int]$r.StatusCode -lt 500) { exit 0 } else { exit 1 }',
+  '  }',
+  '  try {',
+  '    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12',
+  '  } catch {',
+  '    try { [System.Net.ServicePointManager]::SecurityProtocol = 3072 } catch {}',
+  '  }',
+  '  $req = [System.Net.WebRequest]::Create($Url)',
+  '  $req.Timeout = $TimeoutSec * 1000',
+  '  if ($req -is [System.Net.HttpWebRequest]) { $req.UserAgent = $ua }',
+  '  $resp = $req.GetResponse()',
+  '  try {',
+  '    $code = [int]$resp.StatusCode',
+  '    if ($code -lt 500) { exit 0 } else { exit 1 }',
+  '  } finally {',
+  '    $resp.Close()',
+  '  }',
+  '} catch {',
+  '  exit 1',
+  '}'
+].join('\r\n');
+
+function unblockDownloadedPlatformFiles(platformDir) {
+  if (process.platform !== 'win32') return;
+  const psScript = [
+    '$ErrorActionPreference = "SilentlyContinue"',
+    `$dir = '${platformDir.replace(/'/g, "''")}'`,
+    'if ($PSVersionTable.PSVersion.Major -ge 3) {',
+    '  Get-ChildItem -LiteralPath $dir -File | ForEach-Object { Unblock-File -LiteralPath $_.FullName -ErrorAction SilentlyContinue }',
+    '} else {',
+    '  Get-ChildItem -LiteralPath $dir -File | ForEach-Object {',
+    '    $ads = $_.FullName + ":Zone.Identifier"',
+    '    if (Test-Path -LiteralPath $ads) { Remove-Item -LiteralPath $ads -Force -ErrorAction SilentlyContinue }',
+    '  }',
+    '}'
+  ].join('\r\n');
+  const tmp = path.join(app.getPath('temp'), `unblock-zone-${Date.now()}.ps1`);
+  fs.writeFileSync(tmp, psScript, 'utf8');
+  try {
+    execSync(`powershell -NoProfile -ExecutionPolicy Bypass -File "${tmp.replace(/\\/g, '\\\\')}"`, { stdio: 'pipe', windowsHide: true });
+  } catch (e) {
+    // non-critical
+  } finally {
+    try { fs.unlinkSync(tmp); } catch (e2) {}
+  }
+}
+
 async function startProxyWindowsElevated(finalBinaryPath, strategies, totalStrategies, enabledServices = null) {
   const svc = enabledServices || { discord: true, youtube: true, telegram: true };
   const binDirectory = path.dirname(finalBinaryPath);
@@ -1970,12 +2030,16 @@ async function startProxyWindowsElevated(finalBinaryPath, strategies, totalStrat
   const progressFile = path.join(tempDir, 'unblock-progress.txt');
   const batchFile = path.join(tempDir, 'unblock-test.bat');
   const wsTestScript = path.join(tempDir, 'unblock-test-ws.ps1');
+  const httpCheckScript = path.join(tempDir, 'unblock-http-check.ps1');
 
   // Clean old temp files
   try { fs.unlinkSync(resultFile); } catch(e) {}
   try { fs.unlinkSync(progressFile); } catch(e) {}
   try { fs.unlinkSync(wsTestScript); } catch(e) {}
+  try { fs.unlinkSync(httpCheckScript); } catch(e) {}
   fs.writeFileSync(wsTestScript, PS_TEST_GATEWAY_WS, 'utf8');
+  fs.writeFileSync(httpCheckScript, PS_HTTP_CHECK, 'utf8');
+  const httpBat = httpCheckScript.replace(/\\/g, '\\\\');
 
   const hostsUpdateScript = path.join(tempDir, 'unblock-pro-update-hosts.ps1');
 
@@ -2027,10 +2091,10 @@ async function startProxyWindowsElevated(finalBinaryPath, strategies, totalStrat
     // Test YouTube if enabled
     if (svc.youtube) {
       bat += 'set "YT_OK=0"\r\n';
-      bat += `powershell -command "try { $r = Invoke-WebRequest -Uri 'https://www.youtube.com/' -TimeoutSec 12 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
+      bat += `powershell -ExecutionPolicy Bypass -NoProfile -File "${httpBat}" -Url "https://www.youtube.com/" -TimeoutSec 12\r\n`;
       bat += 'if !errorlevel! equ 0 set "YT_OK=1"\r\n';
       bat += 'if "!YT_OK!"=="0" (\r\n';
-      bat += `  powershell -command "try { $r = Invoke-WebRequest -Uri 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg' -TimeoutSec 12 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
+      bat += `  powershell -ExecutionPolicy Bypass -NoProfile -File "${httpBat}" -Url "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg" -TimeoutSec 12\r\n`;
       bat += '  if !errorlevel! equ 0 set "YT_OK=1"\r\n';
       bat += ')\r\n';
       bat += 'if "!YT_OK!"=="0" (\r\n';
@@ -2043,7 +2107,7 @@ async function startProxyWindowsElevated(finalBinaryPath, strategies, totalStrat
     // Test Discord API + WebSocket if enabled
     if (svc.discord) {
       bat += 'set "DC_OK=0"\r\n';
-      bat += `powershell -command "try { $r = Invoke-WebRequest -Uri 'https://discord.com/api/v10/gateway' -TimeoutSec 10 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
+      bat += `powershell -ExecutionPolicy Bypass -NoProfile -File "${httpBat}" -Url "https://discord.com/api/v10/gateway" -TimeoutSec 10\r\n`;
       bat += 'if !errorlevel! equ 0 set "DC_OK=1"\r\n';
       bat += 'if "!DC_OK!"=="0" (\r\n';
       bat += '  taskkill /F /IM winws.exe >nul 2>&1\r\n';
@@ -2059,10 +2123,10 @@ async function startProxyWindowsElevated(finalBinaryPath, strategies, totalStrat
     // Test Telegram if enabled
     if (svc.telegram) {
       bat += 'set "TG_OK=0"\r\n';
-      bat += `powershell -command "try { $r = Invoke-WebRequest -Uri 'https://t.me/' -TimeoutSec 10 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
+      bat += `powershell -ExecutionPolicy Bypass -NoProfile -File "${httpBat}" -Url "https://t.me/" -TimeoutSec 10\r\n`;
       bat += 'if !errorlevel! equ 0 set "TG_OK=1"\r\n';
       bat += 'if "!TG_OK!"=="0" (\r\n';
-      bat += `  powershell -command "try { $r = Invoke-WebRequest -Uri 'https://telegram.org/' -TimeoutSec 10 -UseBasicParsing; if ($r.StatusCode -lt 500) { exit 0 } else { exit 1 } } catch { exit 1 }"\r\n`;
+      bat += `  powershell -ExecutionPolicy Bypass -NoProfile -File "${httpBat}" -Url "https://telegram.org/" -TimeoutSec 10\r\n`;
       bat += '  if !errorlevel! equ 0 set "TG_OK=1"\r\n';
       bat += ')\r\n';
       bat += 'if "!TG_OK!"=="0" (\r\n';

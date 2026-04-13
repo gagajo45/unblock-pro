@@ -194,7 +194,7 @@ git merge upstream/main   # или upstream/master
 
 <p align="center">
   <strong>Fork by gagajo45</strong> · original by sonic (upstream)<br>
-  <sub><a href="https://github.com/gagajo45/unblock-pro">gagajo45/unblock-pro</a> · v2.0.27</sub>
+  <sub><a href="https://github.com/gagajo45/unblock-pro">gagajo45/unblock-pro</a> · v2.0.28</sub>
 </p>
 
 ---

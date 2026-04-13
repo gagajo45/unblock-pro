@@ -26,7 +26,8 @@ $env:UNBLOCKPRO_WIN7_DIST="dist-win7-new"; npm run build:win7
 
 - Windows 7 **SP1**, 64-bit.
 - Обновления для **TLS 1.2** и современных корневых сертификатов (иначе не откроются `https://api.github.com` и загрузка zapret).
-- **PowerShell 3+** (рекомендуется WMF 4.0 или PowerShell 5.1). Без этого не работают проверки стратегий в elevated-batch (`Invoke-WebRequest` и скрипты `.ps1`).
+- **PowerShell 2.0** достаточно для базовых сценариев: распаковка ZIP через .NET `ZipFile`, HTTP-проверки в elevated-batch через `System.Net.WebRequest`, WebSocket-тест Discord без `Get-Random`. Для стабильного **HTTPS (TLS 1.2)** к современным сайтам и меньше сюрпризов по-прежнему рекомендуется **WMF 4+ / PowerShell 5.1** и обновления ОС.
+- Для распаковки скачанного zapret (ZIP) на старых системах используется **.NET** `ZipFile` (нужен **.NET Framework 4.5+**; на обновлённой Win7 обычно уже есть). Раньше использовался `Expand-Archive`, которого нет в PowerShell до версии 5.
 - Права **администратора** для WinDivert / `winws.exe`.
 
 ## Автообновление
