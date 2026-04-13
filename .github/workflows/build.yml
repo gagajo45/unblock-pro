@@ -162,8 +162,64 @@ jobs:
             dist/*.blockmap
           retention-days: 5
 
+  build-windows-win7:
+    runs-on: windows-latest
+    needs: [prepare]
+    if: needs.prepare.outputs.should_build == 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref == 'refs/heads/main' && 'main' || github.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 3
+          retry_wait_seconds: 30
+          command: npm ci
+
+      - name: Create bin directory
+        run: mkdir bin\win32
+        shell: cmd
+
+      - name: Set versionSonic
+        id: pkg
+        run: echo "version_sonic=$(node -p "require('./package.json').versionSonic || require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Build Windows (Electron 22, Windows 7)
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 20
+          max_attempts: 3
+          retry_wait_seconds: 10
+          command: npm run build:win7
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION_SONIC: ${{ steps.pkg.outputs.version_sonic }}
+
+      - name: Remove debug files
+        run: del dist-win7\builder-debug.yml 2>nul || true
+        shell: cmd
+
+      - name: Upload Windows 7 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: win7-build
+          path: |
+            dist-win7/*.exe
+            dist-win7/*.yml
+            dist-win7/*.blockmap
+          retention-days: 5
+
   release:
-    needs: [build-mac, build-windows, prepare]
+    needs: [build-mac, build-windows, build-windows-win7, prepare]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -186,6 +242,12 @@ jobs:
           name: win-build
           path: artifacts/win
 
+      - name: Download Windows 7 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: win7-build
+          path: artifacts/win7
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -204,6 +266,8 @@ jobs:
             | **macOS** Intel | `UnblockPro-sonic*-v*-mac-x64.zip` | Для Mac с Intel |
             | **Windows** | `UnblockPro-sonic*-v*-win-setup.exe` | Установщик |
             | **Windows** | `UnblockPro-sonic*-v*-win-portable.exe` | Портативная версия |
+            | **Windows 7** x64 SP1 | `UnblockPro-sonic*-v*-win7-setup.exe` | Установщик (Electron 22) |
+            | **Windows 7** x64 SP1 | `UnblockPro-sonic*-v*-win7-portable.exe` | Портативная версия (Electron 22) |
             
             ### macOS — первый запуск
             
@@ -219,5 +283,6 @@ jobs:
           files: |
             artifacts/mac/**/*
             artifacts/win/**/*
+            artifacts/win7/**/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

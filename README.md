@@ -28,6 +28,7 @@
 | **macOS** Intel | [UnblockPro-mac-x64.zip](https://github.com/gagajo45/unblock-pro/releases/latest) | Для Mac с Intel |
 | **Windows** | [UnblockPro-win-setup.exe](https://github.com/gagajo45/unblock-pro/releases/latest) | Установщик |
 | **Windows** | [UnblockPro-win-portable.exe](https://github.com/gagajo45/unblock-pro/releases/latest) | Портативная версия (без установки) |
+| **Windows 7** (64-bit SP1) | `*-win7-setup.exe` / `*-win7-portable.exe` | Отдельная сборка на Electron 22 — см. [docs/windows7-support.md](docs/windows7-support.md) |
 
 > Перейдите в [Releases](https://github.com/gagajo45/unblock-pro/releases/latest) и скачайте версию для вашей ОС
 
@@ -193,7 +194,7 @@ git merge upstream/main   # или upstream/master
 
 <p align="center">
   <strong>Fork by gagajo45</strong> · original by sonic (upstream)<br>
-  <sub><a href="https://github.com/gagajo45/unblock-pro">gagajo45/unblock-pro</a> · v2.0.24</sub>
+  <sub><a href="https://github.com/gagajo45/unblock-pro">gagajo45/unblock-pro</a> · v2.0.27</sub>
 </p>
 
 ---

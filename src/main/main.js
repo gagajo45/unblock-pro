@@ -7,7 +7,9 @@ const dns = require('dns');
 const tls = require('tls');
 const sudo = require('sudo-prompt');
 
-dns.setDefaultResultOrder('ipv4first');
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
 const ipv4Lookup = (host, opts, cb) => dns.lookup(host, { family: 4 }, cb);
 const { autoUpdater } = require('electron-updater');
 
@@ -2595,13 +2597,28 @@ function createWindow() {
   const appIconPath = path.join(__dirname, 'icons', 'app-icon.png');
   const windowIcon = fs.existsSync(appIconPath) ? nativeImage.createFromPath(appIconPath) : undefined;
 
+  // Elevated Windows: DWM often fails to composite transparent/frameless windows — window stays invisible (tray only).
+  const elevatedWin = process.platform === 'win32' && isRunningAsAdmin();
+
+  function showMainWindowFront() {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.show();
+    mainWindow.focus();
+    if (elevatedWin) {
+      try {
+        mainWindow.moveTop();
+      } catch (e) {}
+    }
+  }
+
   mainWindow = new BrowserWindow({
     width: 420,
     height: 700,
     minWidth: 380,
     minHeight: 640,
     frame: false,
-    transparent: true,
+    transparent: !elevatedWin,
+    backgroundColor: elevatedWin ? '#0a0a0f' : undefined,
     resizable: true,
     maximizable: true,
     show: false,
@@ -2614,11 +2631,11 @@ function createWindow() {
   });
 
   mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
+    showMainWindowFront();
   });
   const showTimeout = setTimeout(() => {
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
-      mainWindow.show();
+      showMainWindowFront();
     }
   }, 5000);
   mainWindow.once('show', () => clearTimeout(showTimeout));
@@ -2679,6 +2696,10 @@ function createTray() {
 function setupAutoUpdater() {
   if (isDev) return; // Don't check for updates in dev mode
   if (isPortableExe()) return; // Portable: uses setupPortableAutoUpdater
+
+  if (isWin7Build()) {
+    autoUpdater.channel = 'win7';
+  }
 
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
@@ -2782,10 +2803,7 @@ async function runPortableUpdateCheck() {
         const tag = (json.tag_name || '').replace(/^v/, '');
         const current = process.env.UNBLOCKPRO_SIMULATE_UPDATE === '1' ? '0.0.1' : app.getVersion();
         if (compareVersions(current, tag) >= 0) return resolve({ ok: true, updated: false });
-        const asset = (json.assets || []).find(a => {
-          const n = (a.name || '').toLowerCase();
-          return n.includes('portable') && n.endsWith('.exe');
-        });
+        const asset = pickPortableReleaseAsset(json.assets);
         if (!asset?.browser_download_url) return resolve({ ok: false, error: 'Портативный exe не найден' });
         resolve({ ok: true, updated: true, version: tag, downloadUrl: asset.browser_download_url });
       } catch (e) {
@@ -3304,6 +3322,54 @@ function syncPortableTempToOriginal() {
   }
 }
 
+function isWin7Build() {
+  if (process.env.UNBLOCKPRO_WIN7_BUILD === '1') return true;
+  try {
+    const pkgPath = path.join(app.getAppPath(), 'package.json');
+    if (!fs.existsSync(pkgPath)) return false;
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    return pkg.win7Build === true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function pickPortableReleaseAsset(assets) {
+  const list = assets || [];
+  if (isWin7Build()) {
+    const win7 = list.find((x) => {
+      const n = (x.name || '').toLowerCase();
+      return n.includes('win7') && n.includes('portable') && n.endsWith('.exe');
+    });
+    if (win7) return win7;
+  }
+  return list.find((a) => {
+    const n = (a.name || '').toLowerCase();
+    return n.includes('portable') && n.endsWith('.exe') && !n.includes('win7');
+  });
+}
+
+function logWin7RuntimeWarnings() {
+  if (process.platform !== 'win32') return;
+  try {
+    const out = execSync('powershell -NoProfile -Command "$PSVersionTable.PSVersion.Major"', {
+      encoding: 'utf8',
+      timeout: 8000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true
+    });
+    const major = parseInt(String(out).trim(), 10);
+    if (!Number.isFinite(major) || major < 3) {
+      sendLog({
+        type: 'warning',
+        message: 'Нужен PowerShell 3+ (установите Windows Management Framework 4+). Иначе тесты стратегий и обновления могут не работать.'
+      });
+    }
+  } catch (e) {
+    sendLog({ type: 'warning', message: 'Не удалось определить версию PowerShell. Для работы обхода на Windows нужен PowerShell 3+.' });
+  }
+}
+
 function getPublishConfig() {
   try {
     const pkgPath = path.join(app.getAppPath(), 'package.json');
@@ -3363,10 +3429,7 @@ ipcMain.handle('check-for-portable-update', async () => {
         if (compareVersions(current, tag) >= 0) {
           return resolve({ ok: true, updated: false });
         }
-        const asset = (json.assets || []).find(a => {
-          const n = (a.name || '').toLowerCase();
-          return n.includes('portable') && n.endsWith('.exe');
-        });
+        const asset = pickPortableReleaseAsset(json.assets);
         if (!asset || !asset.browser_download_url) {
           return resolve({ ok: false, error: 'Портативный exe не найден в релизе' });
         }
@@ -3555,6 +3618,7 @@ ipcMain.handle('get-system-info', () => {
     binaryPath: getBinaryPath(),
     isAdmin: isRunningAsAdmin(),
     isPortable: isPortableExe(),
+    win7Build: isWin7Build(),
     executablePath: process.execPath,
     releasesUrl,
     simulateUpdateApply: process.env.UNBLOCKPRO_SIMULATE_UPDATE_APPLY === '1',
@@ -3717,6 +3781,7 @@ if (!gotTheLock) {
     const binaryExists = fs.existsSync(getBinaryPath() || '');
     sendLog({ type: 'info', message: 'Приложение запущено' });
     sendStatus({ binaryExists });
+    logWin7RuntimeWarnings();
 
     // Setup auto-updater
     setupAutoUpdater();

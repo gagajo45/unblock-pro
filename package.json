@@ -1,6 +1,6 @@
 {
   "name": "unblock-pro",
-  "version": "2.0.24",
+  "version": "2.0.27",
   "versionSonic": "2.0.15",
   "description": "Обход блокировок Discord, YouTube и Telegram в России — автоматический DPI bypass для macOS и Windows",
   "main": "src/main/main.js",
@@ -10,6 +10,7 @@
     "build": "node scripts/run-build.js",
     "build:mac": "node scripts/run-build.js --mac",
     "build:win": "node scripts/run-build.js --win",
+    "build:win7": "node scripts/run-build.js --win --win7",
     "build:all": "node scripts/run-build.js --mac --win",
     "download-binaries": "node scripts/download-binaries.js",
     "portable:test-replace": "powershell -ExecutionPolicy Bypass -File scripts/run-portable-test.ps1",
